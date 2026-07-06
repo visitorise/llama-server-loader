@@ -31,11 +31,14 @@ fn render_common_settings(frame: &mut Frame, area: Rect, app: &App) {
     let c = &app.config.common;
     let lines = vec![
         Line::from(format!(" llama-server path: {}", c.llama_server_path)),
-        Line::from(format!(" Host: {}", c.host)),
-        Line::from(format!(" Port: {}", c.port)),
+        Line::from(format!(" Host: {}  Port: {}", c.host, c.port)),
         Line::from(format!(" Cache dir: {}", c.cache_dir)),
-        Line::from(format!(" Mid pane height: {}", c.mid_pane_height)),
+        Line::from(format!(" No mmap: {}  Flash attn: {}", c.no_mmap, c.flash_attn)),
+        Line::from(format!(" Spec type: {}  Draft n-max: {}", c.spec_type, c.spec_draft_n_max)),
+        Line::from(format!(" Nvtop: {}  Cmd: {}", c.nvtop_enabled, c.nvtop_cmd)),
+        Line::from(format!(" Update script: {}", c.update_script_path)),
         Line::from(format!(" Extra args: {}", c.extra_args)),
+        Line::from(format!(" Mid pane height: {}", c.mid_pane_height)),
     ];
 
     let block = Block::default()

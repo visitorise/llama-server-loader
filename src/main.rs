@@ -152,6 +152,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         let _ = app.stop_server();
     }
 
+    // App::drop() handles nvtop cleanup
+    drop(app);
+
     Ok(())
 }
 
@@ -238,7 +241,8 @@ fn handle_config_tab_key(
         }
         KeyCode::Char('c') | KeyCode::Char('C') => {
             if !app.show_update_popup {
-                let (rx, handle) = ui_update_popup::start_update_check();
+                let script = app.config.common.update_script_path.clone();
+                let (rx, handle) = ui_update_popup::start_update_check(&script);
                 app.update_output.clear();
                 app.show_update_popup = true;
                 *update_rx = Some(rx);

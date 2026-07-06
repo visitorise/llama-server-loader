@@ -1,6 +1,7 @@
 use crate::config;
 use crate::model::{AppConfig, ModelSettings, scan_model_files, model_dir_from_server_path};
 use crate::server_manager::{ServerEvent, ServerManager};
+use std::process::{Child, Command};
 use std::sync::mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,6 +31,7 @@ pub struct App {
     pub show_update_popup: bool,
     pub update_output: Vec<String>,
     pub should_quit: bool,
+    nvtop_child: Option<Child>,
 }
 
 impl App {
@@ -39,7 +41,7 @@ impl App {
         let model_files = scan_model_files(&model_dir_from_server_path(&server_path));
         config::sync_models(&mut config, &server_path);
 
-        Self {
+        let mut app = Self {
             config,
             tab: AppTab::Server,
             server_state: ServerState::Idle,
@@ -54,7 +56,11 @@ impl App {
             show_update_popup: false,
             update_output: Vec::new(),
             should_quit: false,
-        }
+            nvtop_child: None,
+        };
+
+        app.start_nvtop();
+        app
     }
 
     pub fn selected_model_settings(&self) -> Option<&ModelSettings> {
@@ -149,6 +155,64 @@ impl App {
         let server_path = self.config.common.llama_server_path.clone();
         self.model_files = scan_model_files(&model_dir_from_server_path(&server_path));
         config::sync_models(&mut self.config, &server_path);
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.kill_nvtop();
+    }
+}
+
+impl App {
+    /// Launch nvtop in a separate terminal window.
+    fn start_nvtop(&mut self) {
+        if !self.config.common.nvtop_enabled {
+            return;
+        }
+        if self.nvtop_child.is_some() {
+            return;
+        }
+        let term = &self.config.common.terminal_cmd;
+        let nvtop = &self.config.common.nvtop_cmd;
+        match Command::new(term).arg("-e").arg(nvtop).spawn() {
+            Ok(child) => {
+                self.log_lines
+                    .push(format!("[{}] nvtop started via {term}", chrono_now()));
+                self.nvtop_child = Some(child);
+            }
+            Err(e) => {
+                // Fallback: try spawning nvtop directly
+                match Command::new(nvtop).spawn() {
+                    Ok(child) => {
+                        self.log_lines.push(format!(
+                            "[{}] nvtop started (direct fallback)",
+                            chrono_now()
+                        ));
+                        self.nvtop_child = Some(child);
+                    }
+                    Err(e2) => {
+                        self.log_lines.push(format!(
+                            "[{err}] nvtop: {term} -> {e}, direct: {e2}",
+                            err = chrono_now()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Kill nvtop process and any stray nvtop instances.
+    fn kill_nvtop(&mut self) {
+        if let Some(mut child) = self.nvtop_child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        // Backup: kill any stray nvtop processes
+        let _ = Command::new("pkill")
+            .arg("-f")
+            .arg("nvtop")
+            .output();
     }
 }
 
