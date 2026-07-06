@@ -16,13 +16,44 @@ pub enum ServerState {
     Running,
 }
 
+/// Which section is focused in the Configure tab.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConfigSection {
+    Common,
+    ModelList,
+    ModelSettings,
+}
+
+/// Edit state for the Configure tab.
+pub struct ConfigEdit {
+    pub section: ConfigSection,
+    pub common_idx: usize,
+    pub model_list_idx: usize,
+    pub model_field_idx: usize,
+    pub editing: bool,
+    pub buffer: String,
+}
+
+impl ConfigEdit {
+    pub fn new() -> Self {
+        Self {
+            section: ConfigSection::Common,
+            common_idx: 0,
+            model_list_idx: 0,
+            model_field_idx: 0,
+            editing: false,
+            buffer: String::new(),
+        }
+    }
+}
+
 pub struct App {
     pub config: AppConfig,
     pub tab: AppTab,
     pub server_state: ServerState,
     pub model_files: Vec<crate::model::ModelFileEntry>,
     pub selected_model_idx: usize,
-    pub config_selected_idx: usize,
+    pub config_edit: ConfigEdit,
     pub config_dirty: bool,
     pub server_manager: ServerManager,
     pub server_event_rx: Option<mpsc::Receiver<ServerEvent>>,
@@ -47,7 +78,7 @@ impl App {
             server_state: ServerState::Idle,
             model_files,
             selected_model_idx: 0,
-            config_selected_idx: 0,
+            config_edit: ConfigEdit::new(),
             config_dirty: false,
             server_manager: ServerManager::new(),
             server_event_rx: None,

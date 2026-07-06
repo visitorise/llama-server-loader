@@ -11,6 +11,7 @@ mod ui_update_popup;
 const VERSION: &str = "0.1.0";
 
 use app::{App, AppTab, ServerState};
+use ui_config_tab::{COMMON_FIELDS, MODEL_FIELDS};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -222,21 +223,143 @@ fn handle_config_tab_key(
     update_rx: &mut Option<mpsc::Receiver<String>>,
     update_handle: &mut Option<std::thread::JoinHandle<()>>,
 ) {
+    use app::ConfigSection;
+
+    // === EDIT MODE ===
+    if app.config_edit.editing {
+        match key {
+            KeyCode::Enter => {
+                let new_val = app.config_edit.buffer.clone();
+                match app.config_edit.section {
+                    app::ConfigSection::Common => {
+                        if let Some((_, _, set)) =
+                            ui_config_tab::COMMON_FIELDS.get(app.config_edit.common_idx)
+                        {
+                            set(&mut app.config.common, new_val);
+                        }
+                    }
+                    app::ConfigSection::ModelSettings => {
+                        if let Some(model) =
+                            app.config.models.get_mut(app.config_edit.model_list_idx)
+                        {
+                            if let Some((_, _, set)) =
+                                ui_config_tab::MODEL_FIELDS.get(app.config_edit.model_field_idx)
+                            {
+                                set(model, new_val);
+                            }
+                        }
+                    }
+                    app::ConfigSection::ModelList => {}
+                }
+                app.config_edit.editing = false;
+                app.config_edit.buffer.clear();
+            }
+            KeyCode::Esc => {
+                app.config_edit.editing = false;
+                app.config_edit.buffer.clear();
+            }
+            KeyCode::Backspace => {
+                app.config_edit.buffer.pop();
+            }
+            KeyCode::Char(c) if !c.is_control() => {
+                app.config_edit.buffer.push(c);
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // === NAVIGATION MODE ===
     match key {
         KeyCode::Tab => {
             app.tab = AppTab::Server;
         }
+        KeyCode::Left | KeyCode::Char('h') => {
+            app.config_edit.section = match app.config_edit.section {
+                ConfigSection::ModelSettings => ConfigSection::ModelList,
+                ConfigSection::ModelList => ConfigSection::Common,
+                ConfigSection::Common => ConfigSection::Common,
+            };
+        }
+        KeyCode::Right | KeyCode::Char('l') => {
+            app.config_edit.section = match app.config_edit.section {
+                ConfigSection::Common => ConfigSection::ModelList,
+                ConfigSection::ModelList => ConfigSection::ModelSettings,
+                ConfigSection::ModelSettings => ConfigSection::ModelSettings,
+            };
+        }
         KeyCode::Up | KeyCode::Char('k') => {
-            let idx = app.config_selected_idx.saturating_sub(1);
-            if idx < app.config.models.len() {
-                app.config_selected_idx = idx;
+            match app.config_edit.section {
+                ConfigSection::Common => {
+                    let idx = app.config_edit.common_idx.saturating_sub(1);
+                    app.config_edit.common_idx = idx;
+                }
+                ConfigSection::ModelList => {
+                    let idx = app.config_edit.model_list_idx.saturating_sub(1);
+                    app.config_edit.model_list_idx = idx;
+                    app.config_edit.model_field_idx = 0;
+                }
+                ConfigSection::ModelSettings => {
+                    let idx = app.config_edit.model_field_idx.saturating_sub(1);
+                    app.config_edit.model_field_idx = idx;
+                }
             }
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let idx = (app.config_selected_idx + 1)
-                .min(app.config.models.len().saturating_sub(1));
-            if idx < app.config.models.len() {
-                app.config_selected_idx = idx;
+            match app.config_edit.section {
+                ConfigSection::Common => {
+                    let idx = (app.config_edit.common_idx + 1)
+                        .min(COMMON_FIELDS.len().saturating_sub(1));
+                    app.config_edit.common_idx = idx;
+                }
+                ConfigSection::ModelList => {
+                    let idx = (app.config_edit.model_list_idx + 1)
+                        .min(app.config.models.len().saturating_sub(1));
+                    app.config_edit.model_list_idx = idx;
+                    app.config_edit.model_field_idx = 0;
+                }
+                ConfigSection::ModelSettings => {
+                    let idx = (app.config_edit.model_field_idx + 1)
+                        .min(MODEL_FIELDS.len().saturating_sub(1));
+                    app.config_edit.model_field_idx = idx;
+                }
+            }
+        }
+        KeyCode::Enter => {
+            // Start editing current field
+            app.config_edit.buffer = match app.config_edit.section {
+                ConfigSection::Common => {
+                    if let Some((_, get, _)) = COMMON_FIELDS.get(app.config_edit.common_idx) {
+                        get(&app.config.common)
+                    } else {
+                        return;
+                    }
+                }
+                ConfigSection::ModelSettings => {
+                    if let Some(model) = app.config.models.get(app.config_edit.model_list_idx) {
+                        if let Some((_, get, _)) = MODEL_FIELDS.get(app.config_edit.model_field_idx)
+                        {
+                            get(model)
+                        } else {
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                }
+                ConfigSection::ModelList => {
+                    app.config_edit.section = ConfigSection::ModelSettings;
+                    app.config_edit.model_field_idx = 0;
+                    return;
+                }
+            };
+            app.config_edit.editing = true;
+        }
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            if let Err(e) = crate::config::save_config(&app.config) {
+                app.log_lines.push(format!("[error] Save failed: {e}"));
+            } else {
+                app.log_lines.push("[info] Config saved.".to_string());
             }
         }
         KeyCode::Char('c') | KeyCode::Char('C') => {
@@ -248,6 +371,9 @@ fn handle_config_tab_key(
                 *update_rx = Some(rx);
                 *update_handle = Some(handle);
             }
+        }
+        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            app.should_quit = true;
         }
         _ => {}
     }
