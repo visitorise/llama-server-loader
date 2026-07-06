@@ -86,21 +86,36 @@ fn render_common_settings(frame: &mut Frame, area: Rect, app: &App) {
         let selected = is_active && i == app.config_edit.common_idx;
         let editing = selected && app.config_edit.editing;
 
-        let display = if editing {
-            format!(" {}: {}", label, app.config_edit.buffer)
-        } else {
-            format!(" {}: {}", label, val)
-        };
-
-        let cursor = if editing { " ▏" } else { "" };
-        let style = if selected {
+        let label_style = if selected {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
         } else {
+            Style::default().fg(Color::Cyan)
+        };
+
+        let separator_style = Style::default().fg(Color::DarkGray);
+
+        let value_display = if editing {
+            format!("{}{}", app.config_edit.buffer, " ▏")
+        } else {
+            val
+        };
+
+        let value_style = if editing {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else if selected {
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
             Style::default().fg(Color::White)
         };
-        lines.push(Line::from(Span::styled(format!("{display}{cursor}"), style)));
+
+        let line = Line::from(vec![
+            Span::styled(format!(" {label}"), label_style),
+            Span::styled(": ", separator_style),
+            Span::styled(value_display, value_style),
+        ]);
+        lines.push(line);
     }
 
     let block = Block::default()
@@ -170,21 +185,36 @@ fn render_model_settings(frame: &mut Frame, area: Rect, app: &App) {
             let selected = is_active && i == app.config_edit.model_field_idx;
             let editing = selected && app.config_edit.editing;
 
-            let display = if editing {
-                format!(" {}: {}", label, app.config_edit.buffer)
-            } else {
-                format!(" {}: {}", label, val)
-            };
-
-            let cursor = if editing { " ▏" } else { "" };
-            let style = if selected {
+            let label_style = if selected {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
             } else {
+                Style::default().fg(Color::Green)
+            };
+
+            let separator_style = Style::default().fg(Color::DarkGray);
+
+            let value_display = if editing {
+                format!("{}{}", app.config_edit.buffer, " ▏")
+            } else {
+                val
+            };
+
+            let value_style = if editing {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else if selected {
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
                 Style::default().fg(Color::White)
             };
-            lines.push(Line::from(Span::styled(format!("{display}{cursor}"), style)));
+
+            let line = Line::from(vec![
+                Span::styled(format!(" {label}"), label_style),
+                Span::styled(": ", separator_style),
+                Span::styled(value_display, value_style),
+            ]);
+            lines.push(line);
         }
         let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(paragraph, area);
