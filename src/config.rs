@@ -22,14 +22,18 @@ pub fn config_file_path() -> PathBuf {
 }
 
 /// Load config from file. If file doesn't exist, return default.
+/// Always saves after loading so the file stays up-to-date with new fields.
 pub fn load_config() -> AppConfig {
+    let config = inner_load();
+    // Re-save to persist any new default fields that serde filled in
+    let _ = save_config(&config);
+    config
+}
+
+fn inner_load() -> AppConfig {
     let path = config_file_path();
     if !path.exists() {
-        let config = AppConfig::default();
-        if let Err(e) = save_config(&config) {
-            eprintln!("Warning: could not create default config: {e}");
-        }
-        return config;
+        return AppConfig::default();
     }
     match std::fs::read_to_string(&path) {
         Ok(content) => {
