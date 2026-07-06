@@ -304,6 +304,7 @@ fn handle_config_tab_key(
                     app.config_edit.model_field_idx = idx;
                 }
             }
+            app.config_edit.follow_selection();
         }
         KeyCode::Down | KeyCode::Char('j') => {
             match app.config_edit.section {
@@ -324,6 +325,43 @@ fn handle_config_tab_key(
                     app.config_edit.model_field_idx = idx;
                 }
             }
+            app.config_edit.follow_selection();
+        }
+        KeyCode::PageUp => {
+            match app.config_edit.section {
+                ConfigSection::Common => {
+                    app.config_edit.common_scroll = app.config_edit.common_scroll.saturating_sub(5);
+                    app.config_edit.common_idx = app.config_edit.common_idx.saturating_sub(5);
+                }
+                ConfigSection::ModelSettings => {
+                    app.config_edit.model_scroll = app.config_edit.model_scroll.saturating_sub(5);
+                    app.config_edit.model_field_idx = app.config_edit.model_field_idx.saturating_sub(5);
+                }
+                _ => {}
+            }
+            app.config_edit.follow_selection();
+        }
+        KeyCode::PageDown => {
+            match app.config_edit.section {
+                ConfigSection::Common => {
+                    app.config_edit.common_scroll =
+                        app.config_edit.common_scroll.saturating_add(5)
+                            .min(COMMON_FIELDS.len().saturating_sub(1) as u16);
+                    app.config_edit.common_idx =
+                        (app.config_edit.common_idx + 5)
+                            .min(COMMON_FIELDS.len().saturating_sub(1));
+                }
+                ConfigSection::ModelSettings => {
+                    app.config_edit.model_scroll =
+                        app.config_edit.model_scroll.saturating_add(5)
+                            .min(MODEL_FIELDS.len().saturating_sub(1) as u16);
+                    app.config_edit.model_field_idx =
+                        (app.config_edit.model_field_idx + 5)
+                            .min(MODEL_FIELDS.len().saturating_sub(1));
+                }
+                _ => {}
+            }
+            app.config_edit.follow_selection();
         }
         KeyCode::Enter => {
             // Start editing current field

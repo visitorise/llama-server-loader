@@ -122,7 +122,9 @@ fn render_common_settings(frame: &mut Frame, area: Rect, app: &App) {
         .title(" Common Settings ")
         .borders(Borders::ALL)
         .style(border_style);
-    let paragraph = Paragraph::new(lines).block(block);
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .scroll((app.config_edit.common_scroll, 0));
     frame.render_widget(paragraph, area);
 }
 
@@ -216,7 +218,9 @@ fn render_model_settings(frame: &mut Frame, area: Rect, app: &App) {
             ]);
             lines.push(line);
         }
-        let paragraph = Paragraph::new(lines).block(block);
+        let paragraph = Paragraph::new(lines)
+            .block(block)
+            .scroll((app.config_edit.model_scroll, 0));
         frame.render_widget(paragraph, area);
     } else {
         let paragraph = Paragraph::new(Line::from("No model selected or no models configured."))

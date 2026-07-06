@@ -32,7 +32,12 @@ pub struct ConfigEdit {
     pub model_field_idx: usize,
     pub editing: bool,
     pub buffer: String,
+    pub common_scroll: u16,
+    pub model_scroll: u16,
 }
+
+/// Estimated visible lines inside a settings panel (area height − 2 borders).
+const PANEL_VISIBLE_LINES: u16 = 9;
 
 impl ConfigEdit {
     pub fn new() -> Self {
@@ -43,6 +48,31 @@ impl ConfigEdit {
             model_field_idx: 0,
             editing: false,
             buffer: String::new(),
+            common_scroll: 0,
+            model_scroll: 0,
+        }
+    }
+
+    /// Adjust scroll offsets so the currently selected field is visible.
+    pub fn follow_selection(&mut self) {
+        match self.section {
+            ConfigSection::Common => {
+                let sel = self.common_idx as u16;
+                if sel < self.common_scroll {
+                    self.common_scroll = sel;
+                } else if sel >= self.common_scroll + PANEL_VISIBLE_LINES {
+                    self.common_scroll = sel - PANEL_VISIBLE_LINES + 1;
+                }
+            }
+            ConfigSection::ModelSettings => {
+                let sel = self.model_field_idx as u16;
+                if sel < self.model_scroll {
+                    self.model_scroll = sel;
+                } else if sel >= self.model_scroll + PANEL_VISIBLE_LINES {
+                    self.model_scroll = sel - PANEL_VISIBLE_LINES + 1;
+                }
+            }
+            _ => {}
         }
     }
 }
