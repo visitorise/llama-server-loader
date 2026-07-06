@@ -32,6 +32,7 @@ pub const COMMON_FIELDS: &[(&str, fn(&CommonSettings) -> String, fn(&mut CommonS
 /// Labels + getter/setter for model settings fields.
 pub const MODEL_FIELDS: &[(&str, fn(&crate::model::ModelSettings) -> String, fn(&mut crate::model::ModelSettings, String))] = &[
     ("name", |m| m.name.clone(), |m, v| m.name = v),
+    ("file", |m| m.file.clone(), |m, v| m.file = v),
     ("gpu_layers", |m| m.gpu_layers.to_string(), |m, v| { if let Ok(n) = v.parse() { m.gpu_layers = n } }),
     ("ctx_size", |m| m.ctx_size.to_string(), |m, v| { if let Ok(n) = v.parse() { m.ctx_size = n } }),
     ("kv_k", |m| m.kv_k.clone(), |m, v| m.kv_k = v),
