@@ -1,4 +1,4 @@
-use crate::model::{CommonSettings, ModelSettings, cache_dir_from_settings, model_dir_from_server_path};
+use crate::model::{CommonSettings, ModelSettings, cache_dir_from_settings, model_dir_from_common};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -41,7 +41,7 @@ impl ServerManager {
         }
 
         let server_path = &common.llama_server_path;
-        let model_dir = model_dir_from_server_path(server_path);
+        let model_dir = model_dir_from_common(common);
         let model_path = model_dir.join(&model.file);
         let cache_dir = cache_dir_from_settings(common);
 

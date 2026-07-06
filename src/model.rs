@@ -36,6 +36,9 @@ pub struct CommonSettings {
     pub spec_draft_n_max: u32,
     #[serde(default)]
     pub extra_args: String,
+    /// Explicit model directory. If empty, derived from llama_server_path.
+    #[serde(default)]
+    pub model_dir: String,
 }
 
 fn default_update_script() -> String {
@@ -78,6 +81,7 @@ impl Default for CommonSettings {
             spec_type: default_spec_type(),
             spec_draft_n_max: 2,
             extra_args: String::new(),
+            model_dir: String::new(),
         }
     }
 }
@@ -205,7 +209,18 @@ pub fn scan_model_files(model_dir: &Path) -> Vec<ModelFileEntry> {
     entries
 }
 
-/// Derive model directory from llama_server_path.
+/// Derive model directory: use explicit model_dir if set, else derive from server path.
+pub fn model_dir_from_common(common: &CommonSettings) -> PathBuf {
+    if !common.model_dir.is_empty() {
+        let p = Path::new(&common.model_dir);
+        if p.is_absolute() {
+            return p.to_path_buf();
+        }
+    }
+    model_dir_from_server_path(&common.llama_server_path)
+}
+
+/// Derive model directory from llama_server_path alone (fallback).
 pub fn model_dir_from_server_path(server_path: &str) -> PathBuf {
     let p = Path::new(server_path);
     let parent = p.parent().unwrap_or(Path::new("."));

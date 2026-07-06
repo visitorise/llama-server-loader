@@ -1,5 +1,5 @@
 use crate::config;
-use crate::model::{AppConfig, ModelSettings, scan_model_files, model_dir_from_server_path};
+use crate::model::{AppConfig, ModelSettings, scan_model_files, model_dir_from_common};
 use crate::server_manager::{ServerEvent, ServerManager};
 use std::process::{Child, Command};
 use std::sync::mpsc;
@@ -37,9 +37,9 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         let mut config = config::load_config();
-        let server_path = config.common.llama_server_path.clone();
-        let model_files = scan_model_files(&model_dir_from_server_path(&server_path));
-        config::sync_models(&mut config, &server_path);
+        let common = config.common.clone();
+        let model_files = scan_model_files(&model_dir_from_common(&common));
+        config::sync_models(&mut config, &common);
 
         let mut app = Self {
             config,
@@ -152,9 +152,9 @@ impl App {
     }
 
     pub fn rescan_models(&mut self) {
-        let server_path = self.config.common.llama_server_path.clone();
-        self.model_files = scan_model_files(&model_dir_from_server_path(&server_path));
-        config::sync_models(&mut self.config, &server_path);
+        let common = self.config.common.clone();
+        self.model_files = scan_model_files(&model_dir_from_common(&common));
+        config::sync_models(&mut self.config, &common);
     }
 }
 

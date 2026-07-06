@@ -1,4 +1,4 @@
-use crate::model::{AppConfig, ModelSettings, scan_model_files, model_dir_from_server_path};
+use crate::model::{AppConfig, CommonSettings, ModelSettings, scan_model_files, model_dir_from_common};
 use directories::ProjectDirs;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -59,8 +59,8 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
 
 /// Sync models: merge saved config models with files on disk.
 /// Matches by `file` field. New files get `ModelSettings::default()` with name/file set.
-pub fn sync_models(config: &mut AppConfig, server_path: &str) {
-    let model_dir = model_dir_from_server_path(server_path);
+pub fn sync_models(config: &mut AppConfig, common: &CommonSettings) {
+    let model_dir = model_dir_from_common(common);
     let disk_files = scan_model_files(&model_dir);
 
     let mut model_map: HashMap<String, ModelSettings> = config
