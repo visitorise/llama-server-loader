@@ -59,13 +59,6 @@ impl ServerManager {
             model.ctx_size.to_string(),
             "--slot-save-path".into(),
             cache_dir.to_string_lossy().to_string(),
-            "--no-mmap".into(),
-            "--flash-attn".into(),
-            "on".into(),
-            "--spec-type".into(),
-            "none".into(),
-            "--spec-draft-n-max".into(),
-            "2".into(),
             "-m".into(),
             model_path.to_string_lossy().to_string(),
             "--alias".into(),
@@ -87,6 +80,15 @@ impl ServerManager {
             "-ctv".into(),
             model.kv_v.clone(),
         ];
+
+        if common.no_mmap {
+            args.push("--no-mmap".into());
+        }
+        if common.flash_attn == "on" {
+            args.extend_from_slice(&["--flash-attn".into(), "on".into()]);
+        }
+        args.extend_from_slice(&["--spec-type".into(), common.spec_type.clone()]);
+        args.extend_from_slice(&["--spec-draft-n-max".into(), common.spec_draft_n_max.to_string()]);
 
         // Append extra args if present
         let trimmed = common.extra_args.trim();

@@ -10,8 +10,55 @@ pub struct CommonSettings {
     pub port: u16,
     pub cache_dir: String,
     pub mid_pane_height: u16,
+    /// Path to llama-server-update.sh
+    #[serde(default = "default_update_script")]
+    pub update_script_path: String,
+    /// Launch nvtop in a separate terminal when server starts
+    #[serde(default)]
+    pub nvtop_enabled: bool,
+    /// nvtop command
+    #[serde(default = "default_nvtop_cmd")]
+    pub nvtop_cmd: String,
+    /// Terminal emulator for nvtop
+    #[serde(default = "default_terminal_cmd")]
+    pub terminal_cmd: String,
+    /// Pass --no-mmap to llama-server
+    #[serde(default = "default_true")]
+    pub no_mmap: bool,
+    /// Value for --flash-attn (on/off)
+    #[serde(default = "default_flash_attn")]
+    pub flash_attn: String,
+    /// Value for --spec-type (none/default)
+    #[serde(default = "default_spec_type")]
+    pub spec_type: String,
+    /// Value for --spec-draft-n-max
+    #[serde(default = "default_spec_draft")]
+    pub spec_draft_n_max: u32,
     #[serde(default)]
     pub extra_args: String,
+}
+
+fn default_update_script() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    format!("{home}/Develop/llamacpp_loader/llama-server-loader/llama-server-update.sh")
+}
+fn default_nvtop_cmd() -> String {
+    "nvtop".to_string()
+}
+fn default_terminal_cmd() -> String {
+    "x-terminal-emulator".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_flash_attn() -> String {
+    "on".to_string()
+}
+fn default_spec_type() -> String {
+    "none".to_string()
+}
+fn default_spec_draft() -> u32 {
+    2
 }
 
 impl Default for CommonSettings {
@@ -22,6 +69,14 @@ impl Default for CommonSettings {
             port: 11400,
             cache_dir: String::new(),
             mid_pane_height: 21,
+            update_script_path: default_update_script(),
+            nvtop_enabled: false,
+            nvtop_cmd: default_nvtop_cmd(),
+            terminal_cmd: default_terminal_cmd(),
+            no_mmap: true,
+            flash_attn: default_flash_attn(),
+            spec_type: default_spec_type(),
+            spec_draft_n_max: 2,
             extra_args: String::new(),
         }
     }
