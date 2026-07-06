@@ -68,9 +68,19 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         let mut config = config::load_config();
+
+        // Resolve model_dir using the fallback if empty, then persist.
+        {
+            let resolved = model_dir_from_common(&config.common);
+            if config.common.model_dir.is_empty() {
+                config.common.model_dir = resolved.to_string_lossy().to_string();
+            }
+        }
+
         let common = config.common.clone();
         let model_files = scan_model_files(&model_dir_from_common(&common));
         config::sync_models(&mut config, &common);
+        let _ = config::save_config(&config);
 
         let mut app = Self {
             config,
