@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 // ── Common settings ──
@@ -13,15 +14,7 @@ pub struct CommonSettings {
     /// Path to llama-server-update.sh
     #[serde(default = "default_update_script")]
     pub update_script_path: String,
-    /// Launch nvtop in a separate terminal when server starts
-    #[serde(default)]
-    pub nvtop_enabled: bool,
-    /// nvtop command
-    #[serde(default = "default_nvtop_cmd")]
-    pub nvtop_cmd: String,
-    /// Terminal emulator for nvtop
-    #[serde(default = "default_terminal_cmd")]
-    pub terminal_cmd: String,
+
     /// Pass --no-mmap to llama-server
     #[serde(default = "default_true")]
     pub no_mmap: bool,
@@ -45,12 +38,6 @@ fn default_update_script() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     format!("{home}/Develop/llamacpp_loader/llama-server-loader/llama-server-update.sh")
 }
-fn default_nvtop_cmd() -> String {
-    "nvtop".to_string()
-}
-fn default_terminal_cmd() -> String {
-    "x-terminal-emulator".to_string()
-}
 fn default_true() -> bool {
     true
 }
@@ -71,11 +58,9 @@ impl Default for CommonSettings {
             host: "0.0.0.0".to_string(),
             port: 11400,
             cache_dir: String::new(),
-            mid_pane_height: 21,
+            mid_pane_height: 19,
             update_script_path: default_update_script(),
-            nvtop_enabled: false,
-            nvtop_cmd: default_nvtop_cmd(),
-            terminal_cmd: default_terminal_cmd(),
+
             no_mmap: true,
             flash_attn: default_flash_attn(),
             spec_type: default_spec_type(),
@@ -181,6 +166,7 @@ impl Default for AppConfig {
 #[derive(Debug, Clone)]
 pub struct ModelFileEntry {
     pub file_name: String,
+    #[allow(dead_code)]
     pub file_path: PathBuf,
 }
 
@@ -238,4 +224,126 @@ pub fn cache_dir_from_settings(common: &CommonSettings) -> PathBuf {
     let server = Path::new(&common.llama_server_path);
     let parent = server.parent().unwrap_or(Path::new("."));
     parent.join("..").join("cache")
+}
+
+// ── GPU metrics (from NVML polling) ──
+
+#[derive(Debug, Clone, Default)]
+pub struct GpuMetrics {
+    pub index: u32,
+    pub name: String,
+    pub gpu_util: u32,
+    pub mem_used_mb: f64,
+    pub mem_total_mb: f64,
+    pub mem_util: u32,
+    pub temp: u32,
+    pub power_draw: f64,
+    pub power_limit: f64,
+    pub gpu_clock: u32,
+    pub mem_clock: u32,
+    pub fan_speed: u32,
+    pub pstate: String,
+    #[allow(dead_code)]
+    pub encoder_util: u32,
+    #[allow(dead_code)]
+    pub decoder_util: u32,
+    #[allow(dead_code)]
+    pub util_history: VecDeque<u32>,
+    pub pcie_link_gen: u32,
+    pub pcie_link_width: u32,
+    pub pcie_rx_kbps: u32,
+    pub pcie_tx_kbps: u32,
+}
+
+pub const GPU_HISTORY_LEN: usize = 60;
+
+impl GpuMetrics {
+    pub fn from_device(
+        device: &nvml_wrapper::Device,
+        index: u32,
+        history: &mut VecDeque<u32>,
+        mem_history: &mut VecDeque<u32>,
+    ) -> Self {
+        use nvml_wrapper::enum_wrappers::device::{Clock, PcieUtilCounter, TemperatureSensor};
+
+        let name = device.name().unwrap_or_default();
+
+        let util = device.utilization_rates().unwrap_or(
+            nvml_wrapper::struct_wrappers::device::Utilization { gpu: 0, memory: 0 },
+        );
+        let mem = device.memory_info().unwrap_or(
+            nvml_wrapper::struct_wrappers::device::MemoryInfo {
+                total: 0,
+                free: 0,
+                used: 0,
+                reserved: 0,
+                version: 0,
+            },
+        );
+        let temp = device
+            .temperature(TemperatureSensor::Gpu)
+            .unwrap_or(0);
+        let power = device.power_usage().unwrap_or(0);
+        let gpu_clock = device.clock_info(Clock::Graphics).unwrap_or(0);
+        let mem_clock = device.clock_info(Clock::Memory).unwrap_or(0);
+        let fan = device.fan_speed(0).unwrap_or(0);
+        let power_limit = device.enforced_power_limit().unwrap_or(0);
+
+        let enc = device
+            .encoder_utilization()
+            .map(|u| u.utilization)
+            .unwrap_or(0);
+        let dec = device
+            .decoder_utilization()
+            .map(|u| u.utilization)
+            .unwrap_or(0);
+
+        let pstate = device
+            .performance_state()
+            .map(|ps| format!("P{}", ps as u32))
+            .unwrap_or_default();
+
+        let pcie_gen = device.current_pcie_link_gen().unwrap_or(0);
+        let pcie_width = device.current_pcie_link_width().unwrap_or(0);
+        let pcie_rx = device.pcie_throughput(PcieUtilCounter::Receive).unwrap_or(0);
+        let pcie_tx = device.pcie_throughput(PcieUtilCounter::Send).unwrap_or(0);
+
+        if history.len() >= GPU_HISTORY_LEN {
+            history.pop_front();
+        }
+        history.push_back(util.gpu);
+
+        if mem_history.len() >= GPU_HISTORY_LEN {
+            mem_history.pop_front();
+        }
+        let mem_used_pct = if mem.total > 0 {
+            ((mem.used + mem.reserved) * 100 / mem.total) as u32
+        } else {
+            0
+        };
+        mem_history.push_back(mem_used_pct);
+
+        Self {
+            index,
+            name,
+            gpu_util: util.gpu,
+            mem_used_mb: (mem.used + mem.reserved) as f64 / 1_048_576.0,
+            mem_total_mb: mem.total as f64 / 1_048_576.0,
+            mem_util: mem_used_pct,
+            temp,
+            power_draw: power as f64 / 1000.0,
+            power_limit: power_limit as f64 / 1000.0,
+            gpu_clock,
+            mem_clock,
+            fan_speed: fan,
+            pstate,
+            encoder_util: enc,
+            decoder_util: dec,
+            util_history: history.clone(),
+            pcie_link_gen: pcie_gen,
+            pcie_link_width: pcie_width,
+            pcie_rx_kbps: pcie_rx,
+            pcie_tx_kbps: pcie_tx,
+        }
+    }
 }

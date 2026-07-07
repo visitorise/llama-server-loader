@@ -8,16 +8,52 @@ use ratatui::{
 };
 
 pub fn render_server_tab(frame: &mut Frame, area: Rect, app: &App) {
+    let running = app.server_state == ServerState::Running;
+
+    let (model_con, btn_con) = if running {
+        (Constraint::Length(3), Constraint::Length(1))
+    } else {
+        (Constraint::Min(5), Constraint::Length(3))
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),
-            Constraint::Length(3),
-        ])
+        .constraints([model_con, btn_con, Constraint::Length(1)])
         .split(area);
 
-    render_model_list(frame, chunks[0], app);
+    if running {
+        render_compact_model(frame, chunks[0], app);
+    } else {
+        render_model_list(frame, chunks[0], app);
+    }
     render_buttons(frame, chunks[1], app);
+    render_server_hint(frame, chunks[2]);
+}
+
+fn render_compact_model(frame: &mut Frame, area: Rect, app: &App) {
+    let model = app
+        .config
+        .models
+        .get(app.selected_model_idx)
+        .map(|m| m.name.as_str())
+        .unwrap_or("-");
+    let block = Block::default()
+        .title(format!(" Model: {} ", model))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Blue));
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        "",
+        Style::default(),
+    )))
+    .block(block);
+    frame.render_widget(paragraph, area);
+}
+
+fn render_server_hint(frame: &mut Frame, area: Rect) {
+    let hint = Paragraph::new(Line::from(Span::styled(
+        " [Tab] Configure tab  [↑↓] Select model  [Enter/r] Run  [s] Stop  [q] Quit",
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(hint, area);
 }
 
 fn render_model_list(frame: &mut Frame, area: Rect, app: &App) {

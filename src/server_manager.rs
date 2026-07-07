@@ -47,6 +47,8 @@ impl ServerManager {
 
         // Build args
         let mut args: Vec<String> = vec![
+            "--log-colors".into(),
+            "on".into(),
             "--port".into(),
             common.port.to_string(),
             "--host".into(),
@@ -185,6 +187,7 @@ impl ServerManager {
     }
 
     /// Check if server is running.
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }

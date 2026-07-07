@@ -8,6 +8,27 @@ use ratatui::{
     Frame,
 };
 
+/// Compute the visible portion of an edited value string, accounting for horizontal
+/// scroll via `tui_input::Input`, and return a display string with a cursor marker.
+fn edit_value_display(input: &tui_input::Input, available_width: usize) -> String {
+    if available_width < 3 {
+        return "…".to_string();
+    }
+    let val = input.value();
+    if val.is_empty() {
+        return " ▏".to_string();
+    }
+
+    let scroll = input.visual_scroll(available_width).min(val.len());
+    let visible = &val[scroll..];
+
+    let cursor_col = input.visual_cursor();
+    let vis_cursor = cursor_col.saturating_sub(scroll).min(visible.len());
+
+    let (bef, aft) = visible.split_at(vis_cursor);
+    format!("{bef}▏{aft}")
+}
+
 /// Labels + getter/setter for common settings fields.
 pub const COMMON_FIELDS: &[(&str, fn(&CommonSettings) -> String, fn(&mut CommonSettings, String))] = &[
     ("llama_server_path",
@@ -22,9 +43,6 @@ pub const COMMON_FIELDS: &[(&str, fn(&CommonSettings) -> String, fn(&mut CommonS
     ("spec_type", |c| c.spec_type.clone(), |c, v| c.spec_type = v),
     ("spec_draft_n_max", |c| c.spec_draft_n_max.to_string(), |c, v| { if let Ok(n) = v.parse() { c.spec_draft_n_max = n } }),
     ("mid_pane_height", |c| c.mid_pane_height.to_string(), |c, v| { if let Ok(n) = v.parse() { c.mid_pane_height = n } }),
-    ("nvtop_enabled", |c| c.nvtop_enabled.to_string(), |c, v| c.nvtop_enabled = v == "true"),
-    ("nvtop_cmd", |c| c.nvtop_cmd.clone(), |c, v| c.nvtop_cmd = v),
-    ("terminal_cmd", |c| c.terminal_cmd.clone(), |c, v| c.terminal_cmd = v),
     ("update_script_path", |c| c.update_script_path.clone(), |c, v| c.update_script_path = v),
     ("extra_args", |c| c.extra_args.clone(), |c, v| c.extra_args = v),
 ];
@@ -41,9 +59,9 @@ pub const MODEL_FIELDS: &[(&str, fn(&crate::model::ModelSettings) -> String, fn(
     ("temperature", |m| m.temperature.to_string(), |m, v| { if let Ok(f) = v.parse() { m.temperature = f } }),
     ("top_k", |m| m.top_k.to_string(), |m, v| { if let Ok(n) = v.parse() { m.top_k = n } }),
     ("top_p", |m| m.top_p.to_string(), |m, v| { if let Ok(f) = v.parse() { m.top_p = f } }),
-    ("min_p", |m| m.min_p.to_string(), |m, v| { if let Ok(f) = v.parse() { m.min_p = f } }),
-    ("repeat_penalty", |m| m.repeat_penalty.to_string(), |m, v| { if let Ok(f) = v.parse() { m.repeat_penalty = f } }),
-    ("presence_penalty", |m| m.presence_penalty.to_string(), |m, v| { if let Ok(f) = v.parse() { m.presence_penalty = f } }),
+    ("min_p", |m| format!("{:.2}", m.min_p), |m, v| { if let Ok(f) = v.parse() { m.min_p = f } }),
+    ("repeat_penalty", |m| format!("{:.1}", m.repeat_penalty), |m, v| { if let Ok(f) = v.parse() { m.repeat_penalty = f } }),
+    ("presence_penalty", |m| format!("{:.1}", m.presence_penalty), |m, v| { if let Ok(f) = v.parse() { m.presence_penalty = f } }),
 ];
 
 pub fn render_config_tab(frame: &mut Frame, area: Rect, app: &App) {
@@ -65,7 +83,7 @@ pub fn render_config_tab(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_save_hint(frame: &mut Frame, area: Rect) {
     let hint = Paragraph::new(Line::from(Span::styled(
-        " [s] Save to disk  [Tab] Server tab  [← →] Section  [Enter] Edit",
+        " [s] Save to disk  [c] Update check  [Tab] Server tab  [← →] Section  [Enter] Edit",
         Style::default().fg(Color::DarkGray),
     )))
     .style(Style::default());
@@ -79,6 +97,8 @@ fn render_common_settings(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         Style::default().fg(Color::Cyan)
     };
+
+    let inner_width = area.width.saturating_sub(2);
 
     let mut lines: Vec<Line> = Vec::new();
     for (i, (label, get, _)) in COMMON_FIELDS.iter().enumerate() {
@@ -96,18 +116,17 @@ fn render_common_settings(frame: &mut Frame, area: Rect, app: &App) {
 
         let separator_style = Style::default().fg(Color::DarkGray);
 
-        let value_display = if editing {
-            format!("{}{}", app.config_edit.buffer, " ▏")
+        let (value_display, value_style) = if editing {
+            let available = (inner_width as usize).saturating_sub(4 + label.len());
+            let display = edit_value_display(&app.config_edit.input, available);
+            (display, Style::default().add_modifier(Modifier::REVERSED))
         } else {
-            val
-        };
-
-        let value_style = if editing {
-            Style::default().add_modifier(Modifier::REVERSED)
-        } else if selected {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
+            let style = if selected {
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            (val, style)
         };
 
         let line = Line::from(vec![
@@ -180,6 +199,8 @@ fn render_model_settings(frame: &mut Frame, area: Rect, app: &App) {
         .borders(Borders::ALL)
         .style(border_style);
 
+    let inner_width = area.width.saturating_sub(2);
+
     if let Some(model) = app.config.models.get(app.config_edit.model_list_idx) {
         let mut lines: Vec<Line> = Vec::new();
         for (i, (label, get, _)) in MODEL_FIELDS.iter().enumerate() {
@@ -197,18 +218,17 @@ fn render_model_settings(frame: &mut Frame, area: Rect, app: &App) {
 
             let separator_style = Style::default().fg(Color::DarkGray);
 
-            let value_display = if editing {
-                format!("{}{}", app.config_edit.buffer, " ▏")
+            let (value_display, value_style) = if editing {
+                let available = (inner_width as usize).saturating_sub(4 + label.len());
+                let display = edit_value_display(&app.config_edit.input, available);
+                (display, Style::default().add_modifier(Modifier::REVERSED))
             } else {
-                val
-            };
-
-            let value_style = if editing {
-                Style::default().add_modifier(Modifier::REVERSED)
-            } else if selected {
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
+                let style = if selected {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                (val, style)
             };
 
             let line = Line::from(vec![

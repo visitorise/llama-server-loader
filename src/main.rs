@@ -17,14 +17,14 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Tabs},
+    widgets::{Paragraph, Tabs},
     Terminal,
 };
 use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -32,14 +32,18 @@ use crossterm::{
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let res = run_app(&mut terminal);
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        crossterm::event::DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     if let Err(e) = res {
@@ -57,16 +61,27 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
     loop {
         app.poll_server_events();
+        app.poll_gpu();
 
         terminal.draw(|frame| {
             let area = frame.area();
 
+            let server_tab_h = if app.server_state == ServerState::Running {
+                6u16
+            } else {
+                22u16
+            };
+            let mid_h = if app.graph_mode {
+                app.config.common.mid_pane_height
+            } else {
+                7u16
+            };
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(1),
-                    Constraint::Length(22),
-                    Constraint::Length(app.config.common.mid_pane_height),
+                    Constraint::Length(server_tab_h),
+                    Constraint::Length(mid_h),
                     Constraint::Min(3),
                 ])
                 .split(area);
@@ -83,8 +98,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
-                )
-                .block(Block::default().borders(Borders::TOP));
+                );
             frame.render_widget(tabs, main_chunks[0]);
 
             let version_str = format!(" llama-server Loader v{VERSION} ");
@@ -108,6 +122,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 frame,
                 main_chunks[2],
                 app.server_state == ServerState::Running,
+                &app.gpu_metrics,
+                &app.gpu_util_history,
+                &app.gpu_mem_history,
+                app.gpu_available,
+                app.graph_mode,
             );
 
             ui_log::render_log_pane(
@@ -115,6 +134,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 main_chunks[3],
                 &app.log_lines,
                 app.server_state == ServerState::Running,
+                app.log_scroll,
+                app.log_auto_scroll,
             );
 
             if app.show_update_popup {
@@ -137,10 +158,22 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         }
 
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    handle_key(&mut app, key.code, &mut update_rx, &mut update_handle);
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    handle_key(&mut app, key, &mut update_rx, &mut update_handle);
                 }
+                Event::Mouse(mouse) if app.tab == AppTab::Server => {
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp => {
+                            app.scroll_up(3);
+                        }
+                        MouseEventKind::ScrollDown => {
+                            app.scroll_down(3);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -153,7 +186,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         let _ = app.stop_server();
     }
 
-    // App::drop() handles nvtop cleanup
     drop(app);
 
     Ok(())
@@ -161,19 +193,19 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
 fn handle_key(
     app: &mut App,
-    key: KeyCode,
+    key: KeyEvent,
     update_rx: &mut Option<mpsc::Receiver<String>>,
     update_handle: &mut Option<std::thread::JoinHandle<()>>,
 ) {
     if app.show_update_popup {
-        if key == KeyCode::Esc || key == KeyCode::Enter {
+        if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
             app.show_update_popup = false;
         }
         return;
     }
 
     match app.tab {
-        AppTab::Server => handle_server_tab_key(app, key),
+        AppTab::Server => handle_server_tab_key(app, key.code),
         AppTab::Configure => handle_config_tab_key(app, key, update_rx, update_handle),
     }
 }
@@ -210,6 +242,9 @@ fn handle_server_tab_key(app: &mut App, key: KeyCode) {
                 }
             }
         }
+        KeyCode::Char('g') | KeyCode::Char('G') => {
+            app.graph_mode = !app.graph_mode;
+        }
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
             app.should_quit = true;
         }
@@ -219,7 +254,7 @@ fn handle_server_tab_key(app: &mut App, key: KeyCode) {
 
 fn handle_config_tab_key(
     app: &mut App,
-    key: KeyCode,
+    key: KeyEvent,
     update_rx: &mut Option<mpsc::Receiver<String>>,
     update_handle: &mut Option<std::thread::JoinHandle<()>>,
 ) {
@@ -227,9 +262,9 @@ fn handle_config_tab_key(
 
     // === EDIT MODE ===
     if app.config_edit.editing {
-        match key {
+        match key.code {
             KeyCode::Enter => {
-                let new_val = app.config_edit.buffer.clone();
+                let new_val = app.config_edit.input.value().to_string();
                 match app.config_edit.section {
                     app::ConfigSection::Common => {
                         if let Some((_, _, set)) =
@@ -252,25 +287,22 @@ fn handle_config_tab_key(
                     app::ConfigSection::ModelList => {}
                 }
                 app.config_edit.editing = false;
-                app.config_edit.buffer.clear();
+                app.config_edit.input = tui_input::Input::default();
             }
             KeyCode::Esc => {
                 app.config_edit.editing = false;
-                app.config_edit.buffer.clear();
+                app.config_edit.input = tui_input::Input::default();
             }
-            KeyCode::Backspace => {
-                app.config_edit.buffer.pop();
+            _ => {
+                use tui_input::backend::crossterm::EventHandler;
+                app.config_edit.input.handle_event(&Event::Key(key));
             }
-            KeyCode::Char(c) if !c.is_control() => {
-                app.config_edit.buffer.push(c);
-            }
-            _ => {}
         }
         return;
     }
 
     // === NAVIGATION MODE ===
-    match key {
+    match key.code {
         KeyCode::Tab => {
             app.tab = AppTab::Server;
         }
@@ -365,7 +397,7 @@ fn handle_config_tab_key(
         }
         KeyCode::Enter => {
             // Start editing current field
-            app.config_edit.buffer = match app.config_edit.section {
+            let value = match app.config_edit.section {
                 ConfigSection::Common => {
                     if let Some((_, get, _)) = COMMON_FIELDS.get(app.config_edit.common_idx) {
                         get(&app.config.common)
@@ -391,6 +423,7 @@ fn handle_config_tab_key(
                     return;
                 }
             };
+            app.config_edit.input = tui_input::Input::from(value);
             app.config_edit.editing = true;
         }
         KeyCode::Char('s') | KeyCode::Char('S') => {
