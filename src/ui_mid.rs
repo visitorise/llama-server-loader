@@ -54,26 +54,38 @@ fn value_to_top_braille(v: u32) -> char {
     value_to_braille(excess * 100 / 50)
 }
 
-fn build_braille_graph_row(history: &VecDeque<u32>, max_chars: usize, top: bool) -> String {
-    let taken: Vec<char> = history
+fn build_braille_graph_row(history: &VecDeque<u32>, max_chars: usize, top: bool) -> Vec<Span<'static>> {
+    let taken: Vec<(&u32, char)> = history
         .iter()
         .rev()
         .take(max_chars)
-        .map(|&v| {
-            if top {
-                value_to_top_braille(v)
+        .map(|v| {
+            let c = if top {
+                value_to_top_braille(*v)
             } else {
-                value_to_bottom_braille(v)
-            }
+                value_to_bottom_braille(*v)
+            };
+            (v, c)
         })
         .collect();
     let used = taken.len();
-    let chars: String = taken.into_iter().rev().collect();
+    // taken is newest→oldest, reverse → chronological (oldest→newest)
+    let data_spans: Vec<Span<'static>> = taken
+        .into_iter()
+        .rev()
+        .map(|(&v, c)| {
+            let v = v.min(100);
+            let r: u8 = if v <= 50 { (v * 255 / 50) as u8 } else { 255 };
+            let g: u8 = if v <= 50 { 255 } else { (255 - ((v - 50) * 255 / 50)) as u8 };
+            Span::styled(c.to_string(), Style::default().fg(Color::Rgb(r, g, 0)))
+        })
+        .collect();
+    let mut spans = Vec::with_capacity(max_chars);
     if used < max_chars {
-        chars + &" ".repeat(max_chars - used)
-    } else {
-        chars
+        spans.push(Span::raw(" ".repeat(max_chars - used)));
     }
+    spans.extend(data_spans);
+    spans
 }
 
 fn util_bar_spans(percent: u32, total_chars: usize) -> Vec<Span<'static>> {
@@ -90,14 +102,10 @@ fn util_bar_spans(percent: u32, total_chars: usize) -> Vec<Span<'static>> {
                 0
             };
             let c = if i < fill { '|' } else { ' ' };
-            let color = if char_pct >= 90 {
-                Color::Red
-            } else if char_pct >= 70 {
-                Color::Yellow
-            } else {
-                Color::Green
-            };
-            Span::styled(c.to_string(), Style::default().fg(color))
+            let v = char_pct.min(100);
+            let r: u8 = if v <= 50 { (v * 255 / 50) as u8 } else { 255 };
+            let g: u8 = if v <= 50 { 255 } else { (255 - ((v - 50) * 255 / 50)) as u8 };
+            Span::styled(c.to_string(), Style::default().fg(Color::Rgb(r, g, 0)))
         })
         .collect()
 }
@@ -156,22 +164,24 @@ pub fn render_mid_pane(
 
     // Line 1: Device index + name + PCIe / P-state
     let line1 = if first.pcie_link_gen > 0 && first.pcie_link_width > 0 {
+        let rx_str = format_throughput(first.pcie_rx_kbps);
+        let tx_str = format_throughput(first.pcie_tx_kbps);
         Line::from(vec![
             Span::styled(
                 format!(" Device {} ", first.index),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!("[{}]", first.name), Style::default().fg(Color::White)),
+            Span::styled(format!("[{}]", first.name), Style::default().fg(Color::Rgb(160, 160, 160))),
+            Span::styled(" PCIe ", Style::default().fg(Color::Cyan)),
+            Span::styled("GEN", Style::default().fg(Color::Magenta)),
             Span::styled(
-                format!(
-                    " PCIe GEN {}@{}x RX: {} TX: {}",
-                    first.pcie_link_gen,
-                    first.pcie_link_width,
-                    format_throughput(first.pcie_rx_kbps),
-                    format_throughput(first.pcie_tx_kbps),
-                ),
-                Style::default().fg(Color::DarkGray),
+                format!(" {}@{}x ", first.pcie_link_gen, first.pcie_link_width),
+                Style::default().fg(Color::Rgb(160, 160, 160)),
             ),
+            Span::styled("RX", Style::default().fg(Color::Magenta)),
+            Span::styled(format!(": {} ", rx_str), Style::default().fg(Color::Rgb(160, 160, 160))),
+            Span::styled("TX", Style::default().fg(Color::Magenta)),
+            Span::styled(format!(": {}", tx_str), Style::default().fg(Color::Rgb(160, 160, 160))),
         ])
     } else {
         Line::from(vec![
@@ -179,26 +189,29 @@ pub fn render_mid_pane(
                 format!(" Device {} ", first.index),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!("[{}]", first.name), Style::default().fg(Color::White)),
-            Span::styled(
-                format!("  P-state: {}", first.pstate),
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(format!("[{}]", first.name), Style::default().fg(Color::Rgb(160, 160, 160))),
+            Span::styled("  P-state", Style::default().fg(Color::Cyan)),
+            Span::styled(format!(": {}", first.pstate), Style::default().fg(Color::Rgb(160, 160, 160))),
         ])
     };
 
-    // Line 2: Clocks / Temp / Fan / Power
+    // Line 2: Clocks / Temp / Fan / Power  — labels=cyan, values=gray, TEMP value=conditional
     let temp_color = if first.temp >= 85 { Color::Red } else if first.temp >= 70 { Color::Yellow } else { Color::Green };
     let line2 = Line::from(vec![
-        Span::styled(format!(" GPU {:>4}MHz", first.gpu_clock), Style::default().fg(Color::White)),
+        Span::styled(" GPU ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{:>4}MHz", first.gpu_clock), Style::default().fg(Color::Rgb(160, 160, 160))),
         Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!(" MEM {:>4}MHz", first.mem_clock), Style::default().fg(Color::White)),
+        Span::styled(" MEM ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{:>4}MHz", first.mem_clock), Style::default().fg(Color::Rgb(160, 160, 160))),
         Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!(" TEMP {:>2}\u{b0}C", first.temp), Style::default().fg(temp_color)),
+        Span::styled(" TEMP ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{:>2}\u{b0}C", first.temp), Style::default().fg(temp_color)),
         Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!(" FAN {:>3}%", first.fan_speed), Style::default().fg(Color::White)),
+        Span::styled(" FAN ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{:>3}%", first.fan_speed), Style::default().fg(Color::Rgb(160, 160, 160))),
         Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!(" POW {:>3.0}/{:>3.0}W", first.power_draw, first.power_limit), Style::default().fg(Color::White)),
+        Span::styled(" POW ", Style::default().fg(Color::Cyan)),
+        Span::styled(format!("{:>3.0}/{:>3.0}W", first.power_draw, first.power_limit), Style::default().fg(Color::Rgb(160, 160, 160))),
     ]);
 
     // ── graph mode: bar header + chart ──
@@ -227,7 +240,7 @@ pub fn render_mid_pane(
         line3_spans.push(Span::raw(" "));
         line3_spans.push(Span::styled(
             format!("{}/{}", format_memory(first.mem_used_mb), format_memory(first.mem_total_mb)),
-            Style::default().fg(Color::White),
+            Style::default().fg(Color::Rgb(160, 160, 160)),
         ));
         let line3 = Line::from(line3_spans);
         let line4 = Line::from("");
@@ -310,36 +323,35 @@ pub fn render_mid_pane(
         let gpu_color = if first.gpu_util >= 90 { Color::Red } else if first.gpu_util >= 70 { Color::Yellow } else { Color::Green };
         let mem_color = if first.mem_util >= 90 { Color::Red } else if first.mem_util >= 70 { Color::Yellow } else { Color::Green };
 
-        // line 3: top-half braille + GPU/MEM labels, brackets in DarkGray
-        // gap after GPU `]` = 6 spaces → aligns MEM `[` with line 4's `[`
-        let line3 = Line::from(vec![
-            Span::raw(" "),
-            Span::styled("GPU", Style::default().fg(Color::Cyan)),
-            Span::styled("[", Style::default().fg(Color::DarkGray)),
-            Span::raw(gpu_top),
-            Span::styled("]", Style::default().fg(Color::DarkGray)),
-            Span::raw("      "),
-            Span::styled("MEM", Style::default().fg(Color::Cyan)),
-            Span::styled("[", Style::default().fg(Color::DarkGray)),
-            Span::raw(mem_top),
-            Span::styled("]", Style::default().fg(Color::DarkGray)),
-        ]);
+        // line 3: top-half braille (per-point color) + GPU/MEM labels
+        let mut line3_spans: Vec<Span> = Vec::new();
+        line3_spans.push(Span::raw(" "));
+        line3_spans.push(Span::styled("GPU", Style::default().fg(Color::Cyan)));
+        line3_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
+        line3_spans.extend(gpu_top);
+        line3_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
+        line3_spans.push(Span::raw("      "));
+        line3_spans.push(Span::styled("MEM", Style::default().fg(Color::Cyan)));
+        line3_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
+        line3_spans.extend(mem_top);
+        line3_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
+        let line3 = Line::from(line3_spans);
 
-        // line 4: bottom-half braille + values, labels→spaces for alignment, brackets in DarkGray
+        // line 4: bottom-half braille (per-point color) + values
         let mut line4_spans: Vec<Span> = Vec::new();
         line4_spans.push(Span::raw(" "));
         line4_spans.push(Span::raw("   "));
         line4_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
-        line4_spans.push(Span::raw(gpu_bot));
+        line4_spans.extend(gpu_bot);
         line4_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
         line4_spans.push(Span::styled(gpu_val, Style::default().fg(gpu_color)));
         line4_spans.push(Span::raw("  "));
         line4_spans.push(Span::raw("   "));
         line4_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
-        line4_spans.push(Span::raw(mem_bot));
+        line4_spans.extend(mem_bot);
         line4_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
         line4_spans.push(Span::styled(mem_val, Style::default().fg(mem_color)));
-        line4_spans.push(Span::styled(mem_info, Style::default().fg(Color::White)));
+        line4_spans.push(Span::styled(mem_info, Style::default().fg(Color::Rgb(160, 160, 160))));
         let line4 = Line::from(line4_spans);
 
         let header_lines = vec![line1, line2, line3, line4];
