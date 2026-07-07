@@ -65,20 +65,22 @@ pub const MODEL_FIELDS: &[(&str, fn(&crate::model::ModelSettings) -> String, fn(
 ];
 
 pub fn render_config_tab(frame: &mut Frame, area: Rect, app: &App) {
+    let common_h = (area.height / 2).saturating_sub(2);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+        .constraints([Constraint::Length(common_h), Constraint::Min(0)])
         .split(area);
 
-    let top_chunks = Layout::default()
+    let model_w = (chunks[1].width / 2).saturating_sub(5);
+    let bottom_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
-        .split(chunks[0]);
+        .constraints([Constraint::Length(model_w), Constraint::Min(0)])
+        .split(chunks[1]);
 
-    render_common_settings(frame, top_chunks[0], app);
-    render_model_list_config(frame, top_chunks[1], app);
-    render_model_settings(frame, chunks[1], app);
-    render_save_hint(frame, chunks[1]);
+    render_common_settings(frame, chunks[0], app);
+    render_model_list_config(frame, bottom_chunks[0], app);
+    render_model_settings(frame, bottom_chunks[1], app);
+    render_save_hint(frame, bottom_chunks[1]);
 }
 
 fn render_save_hint(frame: &mut Frame, area: Rect) {
