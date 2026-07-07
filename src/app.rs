@@ -108,6 +108,8 @@ pub struct App {
     gpu_poll_interval: Duration,
     pub gpu_available: bool,
     pub graph_mode: bool,
+    pub mouse_select_start: Option<(u16, u16)>,
+    pub mouse_select_end: Option<(u16, u16)>,
 }
 
 impl App {
@@ -157,7 +159,9 @@ impl App {
             last_gpu_poll: Instant::now(),
             gpu_poll_interval: Duration::from_secs(1),
             gpu_available,
-            graph_mode: true,
+            graph_mode: false,
+            mouse_select_start: None,
+            mouse_select_end: None,
         };
 
         app

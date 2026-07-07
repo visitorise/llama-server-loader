@@ -11,7 +11,7 @@ pub fn render_server_tab(frame: &mut Frame, area: Rect, app: &App) {
     let running = app.server_state == ServerState::Running;
 
     let (model_con, btn_con) = if running {
-        (Constraint::Length(3), Constraint::Length(1))
+        (Constraint::Length(1), Constraint::Length(1))
     } else {
         (Constraint::Min(5), Constraint::Length(3))
     };
@@ -21,7 +21,7 @@ pub fn render_server_tab(frame: &mut Frame, area: Rect, app: &App) {
         .split(area);
 
     if running {
-        render_compact_model(frame, chunks[0], app);
+        render_model_wave(frame, chunks[0], app);
     } else {
         render_model_list(frame, chunks[0], app);
     }
@@ -29,22 +29,36 @@ pub fn render_server_tab(frame: &mut Frame, area: Rect, app: &App) {
     render_server_hint(frame, chunks[2]);
 }
 
-fn render_compact_model(frame: &mut Frame, area: Rect, app: &App) {
+fn render_model_wave(frame: &mut Frame, area: Rect, app: &App) {
     let model = app
         .config
         .models
         .get(app.selected_model_idx)
         .map(|m| m.name.as_str())
         .unwrap_or("-");
-    let block = Block::default()
-        .title(format!(" Model: {} ", model))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Blue));
-    let paragraph = Paragraph::new(Line::from(Span::styled(
-        "",
-        Style::default(),
-    )))
-    .block(block);
+
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as f64;
+
+    let mut spans: Vec<Span> = Vec::new();
+    let pad = " ".repeat(area.width.saturating_sub(model.len() as u16 + 6) as usize / 2);
+    spans.push(Span::raw(&pad));
+    spans.push(Span::styled(">>  ", Style::default().fg(Color::White)));
+
+    for (i, c) in model.chars().enumerate() {
+        let phase = elapsed / 480.0 + i as f64 * 0.5;
+        let r = (phase.sin() * 40.0 + 215.0) as u8;
+        let g = ((phase + 2.094).sin() * 40.0 + 215.0) as u8;
+        let b = ((phase + 4.188).sin() * 40.0 + 215.0) as u8;
+        spans.push(Span::styled(c.to_string(), Style::default().fg(Color::Rgb(r, g, b))));
+    }
+
+    spans.push(Span::styled("  <<", Style::default().fg(Color::White)));
+
+    let paragraph = Paragraph::new(Line::from(spans))
+        .style(Style::default().bg(Color::Black));
     frame.render_widget(paragraph, area);
 }
 

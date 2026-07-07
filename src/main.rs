@@ -14,17 +14,18 @@ use app::{App, AppTab, ServerState};
 use ui_config_tab::{COMMON_FIELDS, MODEL_FIELDS};
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
+    buffer::Buffer,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Paragraph, Tabs},
+    widgets::{Paragraph, Tabs, Widget},
     Terminal,
 };
 use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -53,11 +54,52 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+struct ScreenCapture<'a> {
+    lines: &'a std::cell::RefCell<Vec<String>>,
+}
+
+impl Widget for ScreenCapture<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let mut lines = Vec::with_capacity(area.height as usize);
+        for row in 0..area.height {
+            let mut line = String::with_capacity(area.width as usize);
+            for col in 0..area.width {
+                line.push_str(buf[(col, row)].symbol());
+            }
+            lines.push(line);
+        }
+        *self.lines.borrow_mut() = lines;
+    }
+}
+
+struct SelectionOverlay {
+    start: (u16, u16),
+    end: (u16, u16),
+}
+
+impl Widget for SelectionOverlay {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let (c1, r1) = self.start;
+        let (c2, r2) = self.end;
+        let min_col = c1.min(c2).min(area.width.saturating_sub(1));
+        let max_col = c1.max(c2).min(area.width.saturating_sub(1));
+        let min_row = r1.min(r2).min(area.height.saturating_sub(1));
+        let max_row = r1.max(r2).min(area.height.saturating_sub(1));
+        for row in min_row..=max_row {
+            for col in min_col..=max_col {
+                buf[(col, row)].set_style(Style::default().add_modifier(Modifier::REVERSED));
+            }
+        }
+    }
+}
+
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let mut app = App::new();
 
     let mut update_rx: Option<mpsc::Receiver<String>> = None;
     let mut update_handle: Option<std::thread::JoinHandle<()>> = None;
+
+    let screen_lines: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
 
     loop {
         app.poll_server_events();
@@ -67,14 +109,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             let area = frame.area();
 
             let server_tab_h = if app.server_state == ServerState::Running {
-                6u16
+                3u16
             } else {
                 22u16
             };
             let mid_h = if app.graph_mode {
                 app.config.common.mid_pane_height
             } else {
-                7u16
+                6u16
             };
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -141,6 +183,18 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             if app.show_update_popup {
                 ui_update_popup::render_update_popup(frame, area, &app.update_output);
             }
+
+            frame.render_widget(
+                ScreenCapture { lines: &screen_lines },
+                frame.area(),
+            );
+
+            if let (Some(start), Some(end)) = (app.mouse_select_start, app.mouse_select_end) {
+                frame.render_widget(
+                    SelectionOverlay { start, end },
+                    frame.area(),
+                );
+            }
         })?;
 
         if app.show_update_popup {
@@ -162,13 +216,50 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     handle_key(&mut app, key, &mut update_rx, &mut update_handle);
                 }
-                Event::Mouse(mouse) if app.tab == AppTab::Server => {
+                Event::Mouse(mouse) => {
                     match mouse.kind {
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            app.mouse_select_start = Some((mouse.column, mouse.row));
+                            app.mouse_select_end = Some((mouse.column, mouse.row));
+                        }
+                        MouseEventKind::Drag(MouseButton::Left) => {
+                            app.mouse_select_end = Some((mouse.column, mouse.row));
+                        }
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            let start = app.mouse_select_start.take();
+                            let end = app.mouse_select_end.take();
+                            if let (Some(start), Some(end)) = (start, end) {
+                                if let Ok(lines) = screen_lines.try_borrow() {
+                                    let text = extract_text(&lines, start, end);
+                                    if !text.is_empty() {
+                                        std::thread::spawn(move || {
+                                            let _ = std::process::Command::new("wl-copy")
+                                                .stdin(std::process::Stdio::piped())
+                                                .stdout(std::process::Stdio::null())
+                                                .stderr(std::process::Stdio::null())
+                                                .spawn()
+                                                .and_then(|mut child| {
+                                                    use std::io::Write;
+                                                    if let Some(stdin) = child.stdin.as_mut() {
+                                                        let _ = stdin.write_all(text.as_bytes());
+                                                        let _ = stdin.flush();
+                                                    }
+                                                    child.wait()
+                                                });
+                                        });
+                                    }
+                                }
+                            }
+                        }
                         MouseEventKind::ScrollUp => {
-                            app.scroll_up(3);
+                            if app.tab == AppTab::Server {
+                                app.scroll_up(3);
+                            }
                         }
                         MouseEventKind::ScrollDown => {
-                            app.scroll_down(3);
+                            if app.tab == AppTab::Server {
+                                app.scroll_down(3);
+                            }
                         }
                         _ => {}
                     }
@@ -176,6 +267,31 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 _ => {}
             }
         }
+
+fn extract_text(lines: &[String], start: (u16, u16), end: (u16, u16)) -> String {
+    let min_row = (start.1).min(end.1) as usize;
+    let max_row = (start.1).max(end.1) as usize;
+    let min_col = (start.0).min(end.0) as usize;
+    let max_col = (start.0).max(end.0) as usize;
+
+    let mut result = String::new();
+    for row in min_row..=max_row {
+        if row >= lines.len() {
+            break;
+        }
+        let line = &lines[row];
+        let ncols = line.chars().count();
+        let col_end = (max_col + 1).min(ncols);
+        let col_start = min_col.min(col_end);
+        let start_byte = line.char_indices().nth(col_start).map(|(i, _)| i).unwrap_or(line.len());
+        let end_byte = line.char_indices().nth(col_end).map(|(i, _)| i).unwrap_or(line.len());
+        result.push_str(&line[start_byte..end_byte]);
+        if row < max_row && row + 1 < lines.len() {
+            result.push('\n');
+        }
+    }
+    result
+}
 
         if app.should_quit {
             break;
