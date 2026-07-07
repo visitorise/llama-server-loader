@@ -39,8 +39,8 @@ pub struct ConfigEdit {
     pub model_scroll: u16,
 }
 
-/// Estimated visible lines inside a settings panel (area height − 2 borders).
-const PANEL_VISIBLE_LINES: u16 = 9;
+const PANEL_VISIBLE_COMMON: u16 = 7;
+const PANEL_VISIBLE_MODEL: u16 = 11;
 
 impl ConfigEdit {
     pub fn new() -> Self {
@@ -63,16 +63,16 @@ impl ConfigEdit {
                 let sel = self.common_idx as u16;
                 if sel < self.common_scroll {
                     self.common_scroll = sel;
-                } else if sel >= self.common_scroll + PANEL_VISIBLE_LINES {
-                    self.common_scroll = sel - PANEL_VISIBLE_LINES + 1;
+                } else if sel >= self.common_scroll + PANEL_VISIBLE_COMMON {
+                    self.common_scroll = sel - PANEL_VISIBLE_COMMON + 1;
                 }
             }
             ConfigSection::ModelSettings => {
                 let sel = self.model_field_idx as u16;
                 if sel < self.model_scroll {
                     self.model_scroll = sel;
-                } else if sel >= self.model_scroll + PANEL_VISIBLE_LINES {
-                    self.model_scroll = sel - PANEL_VISIBLE_LINES + 1;
+                } else if sel >= self.model_scroll + PANEL_VISIBLE_MODEL {
+                    self.model_scroll = sel - PANEL_VISIBLE_MODEL + 1;
                 }
             }
             _ => {}
