@@ -85,8 +85,8 @@ pub fn render_log_pane(
         return;
     }
 
+    let inner_width = area.width.saturating_sub(2) as usize;
     let visible_height = area.height.saturating_sub(1) as usize;
-    let content_width = area.width.max(1) as usize;
 
     let offset = if log_auto_scroll {
         0usize
@@ -99,7 +99,7 @@ pub fn render_log_pane(
     let mut start = lines.len();
 
     for i in (0..lines.len()).rev() {
-        let vr = visual_rows(&lines[i], content_width);
+        let vr = visual_rows(&lines[i], inner_width);
         // Always include at least the last line so the pane is never blank
         // when lines exist.
         if rows + vr > target_rows && start < lines.len() {

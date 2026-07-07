@@ -211,7 +211,7 @@ pub fn render_mid_pane(
         Span::styled(format!("{:>3}%", first.fan_speed), Style::default().fg(Color::Rgb(160, 160, 160))),
         Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
         Span::styled(" POW ", Style::default().fg(Color::Cyan)),
-        Span::styled(format!("{:>3.0}/{:>3.0}W", first.power_draw, first.power_limit), Style::default().fg(Color::Rgb(160, 160, 160))),
+        Span::styled(format!("{:>3.0} / {:>3.0} W", first.power_draw, first.power_limit), Style::default().fg(Color::Rgb(160, 160, 160))),
     ]);
 
     // ── graph mode: bar header + chart ──
