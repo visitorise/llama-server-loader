@@ -47,8 +47,20 @@ download_url="https://github.com/$GITHUB_REPO/releases/download/$tag/$asset_name
 echo "Downloading: $asset_name"
 
 mkdir -p "$DOWNLOAD_TMP"
-curl -sL --max-time 600 -o "$DOWNLOAD_TMP/$asset_name" "$download_url"
+if ! curl -sL --fail --max-time 600 -o "$DOWNLOAD_TMP/$asset_name" "$download_url"; then
+    echo "ERROR: Asset not found at: $download_url"
+    echo "The release may not have a pre-built binary for your platform."
+    echo "Try: https://github.com/$GITHUB_REPO/releases/tag/$tag"
+    rm -rf "$DOWNLOAD_TMP"
+    exit 1
+fi
 echo "Downloaded: $(du -h "$DOWNLOAD_TMP/$asset_name" | cut -f1)"
+
+if ! gzip -t "$DOWNLOAD_TMP/$asset_name" 2>/dev/null; then
+    echo "ERROR: Downloaded file is corrupted or not a valid archive."
+    rm -rf "$DOWNLOAD_TMP"
+    exit 1
+fi
 
 backup_dir="$HOME/AIAgent/llama.cpp/backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
 cp -a "$LLAMA_SRV_PATH" "$backup_dir"
