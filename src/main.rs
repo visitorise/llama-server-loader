@@ -8,7 +8,7 @@ mod ui_mid;
 mod ui_server_tab;
 mod ui_update_popup;
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = "0.2.0";
 
 use app::{App, AppTab, ServerState};
 use ui_config_tab::{COMMON_FIELDS, MODEL_FIELDS};
