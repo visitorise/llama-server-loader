@@ -56,11 +56,9 @@ fn visual_rows(line: &str, width: usize) -> usize {
 
 /// Render the server log pane.
 ///
-/// We walk backward through `lines`, counting estimated visual rows, and
-/// render only the slice that fits the visible area.  This avoids the
-/// `Paragraph::scroll()` mismatch between logical and visual line counts
-/// while keeping auto-scroll reliable: the newest lines always appear at
-/// the bottom of the pane.
+/// Uses `Paragraph::scroll()` with visual-line-based offset to anchor the
+/// view.  `Paragraph` handles word-wrapping internally, so we only need to
+/// compute the total visual line count and derive the scroll offset from it.
 pub fn render_log_pane(
     frame: &mut Frame,
     area: Rect,
@@ -86,36 +84,39 @@ pub fn render_log_pane(
     }
 
     let inner_width = area.width.saturating_sub(2) as usize;
+
+    // Total visual rows of all log entries after word-wrapping.
+    let total_visual: usize = lines.iter().map(|l| visual_rows(l, inner_width)).sum();
+
+    // Visible text area height = full area minus the TOP border.
     let visible_height = area.height.saturating_sub(1) as usize;
 
-    let offset = if log_auto_scroll {
-        0usize
+    // scroll_y = how many visual rows to skip from the top.
+    //
+    // Auto-scroll: show the last `visible_height` rows → scroll past
+    // everything else.
+    //
+    // Manual scroll (`log_scroll` visual rows above bottom): reduce
+    // skip by `log_scroll` so the view shifts downward, revealing
+    // older content above and hiding newer rows below.
+    let scroll_y = if log_auto_scroll {
+        total_visual.saturating_sub(visible_height)
     } else {
-        log_scroll as usize
+        total_visual
+            .saturating_sub(visible_height)
+            .saturating_sub(log_scroll as usize)
     };
-    let target_rows = visible_height + offset;
 
-    let mut rows = 0usize;
-    let mut start = lines.len();
-
-    for i in (0..lines.len()).rev() {
-        let vr = visual_rows(&lines[i], inner_width);
-        // Always include at least the last line so the pane is never blank
-        // when lines exist.
-        if rows + vr > target_rows && start < lines.len() {
-            break;
-        }
-        rows += vr;
-        start = i;
-    }
-
-    let visible = &lines[start..];
-    let joined = visible.join("\n");
+    let joined = lines.join("\n");
     let text = joined
         .as_bytes()
         .into_text()
         .unwrap_or_else(|_| ratatui::text::Text::from(joined));
 
-    let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll_y as u16, 0));
+
     frame.render_widget(paragraph, area);
 }

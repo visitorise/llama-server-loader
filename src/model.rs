@@ -50,7 +50,6 @@ fn default_spec_type() -> String {
 fn default_spec_draft() -> u32 {
     2
 }
-
 impl Default for CommonSettings {
     fn default() -> Self {
         Self {
