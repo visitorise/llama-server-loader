@@ -6,54 +6,6 @@ use ratatui::{
     Frame,
 };
 
-/// Return the number of visible ASCII columns in `s`, ignoring ANSI escape
-/// sequences (CSI SGR codes like `\x1b[32m`).  llama-server output is
-/// ASCII-only, so every byte that isn't part of an escape sequence counts
-/// as one display column — CJK wide characters are not expected.
-fn display_width(s: &str) -> usize {
-    let bytes = s.as_bytes();
-    let mut len = 0usize;
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == 0x1b {
-            // CSI sequence: ESC [ params… letter (terminator 0x40–0x7E)
-            i += 1;
-            while i < bytes.len() {
-                let b = bytes[i];
-                i += 1;
-                if (0x40..=0x7E).contains(&b) {
-                    break;
-                }
-            }
-            continue;
-        }
-        // Count one display column, advance past UTF-8 continuation bytes
-        let c = bytes[i];
-        i += 1;
-        if c & 0x80 == 0 {
-            // 1-byte ASCII
-        } else if c & 0xE0 == 0xC0 {
-            i += 1; // 2-byte
-        } else if c & 0xF0 == 0xE0 {
-            i += 2; // 3-byte
-        } else if c & 0xF8 == 0xF0 {
-            i += 3; // 4-byte
-        }
-        len += 1;
-    }
-    len
-}
-
-/// Estimate how many visual rows a log line occupies after word-wrapping
-/// at `width` columns.
-fn visual_rows(line: &str, width: usize) -> usize {
-    if line.is_empty() || width == 0 {
-        return 1;
-    }
-    let effective = display_width(line).max(1);
-    ((effective + width - 1) / width).max(1)
-}
-
 /// Render the server log pane.
 ///
 /// Uses `Paragraph::scroll()` with visual-line-based offset to anchor the
@@ -85,28 +37,6 @@ pub fn render_log_pane(
 
     let inner_width = area.width.saturating_sub(2) as usize;
 
-    // Total visual rows of all log entries after word-wrapping.
-    let total_visual: usize = lines.iter().map(|l| visual_rows(l, inner_width)).sum();
-
-    // Visible text area height = full area minus the TOP border.
-    let visible_height = area.height.saturating_sub(1) as usize;
-
-    // scroll_y = how many visual rows to skip from the top.
-    //
-    // Auto-scroll: show the last `visible_height` rows → scroll past
-    // everything else.
-    //
-    // Manual scroll (`log_scroll` visual rows above bottom): reduce
-    // skip by `log_scroll` so the view shifts downward, revealing
-    // older content above and hiding newer rows below.
-    let scroll_y = if log_auto_scroll {
-        total_visual.saturating_sub(visible_height)
-    } else {
-        total_visual
-            .saturating_sub(visible_height)
-            .saturating_sub(log_scroll as usize)
-    };
-
     let joined = lines.join("\n");
     let text = joined
         .as_bytes()
@@ -115,8 +45,26 @@ pub fn render_log_pane(
 
     let paragraph = Paragraph::new(text)
         .block(block)
-        .wrap(Wrap { trim: false })
-        .scroll((scroll_y as u16, 0));
+        .wrap(Wrap { trim: false });
 
-    frame.render_widget(paragraph, area);
+    // Exact total visual rows after word-wrapping (includes block border).
+    // line_count(&self) borrows — consume/rebuild is not needed.
+    let total_visual = paragraph.line_count(inner_width as u16) as usize;
+
+    // Full area height includes the border row.  Scroll is in the paragraph's
+    // visual coordinate space (borders included, see Paragraph::line_count).
+    //
+    // Auto-scroll: skip everything above the last `area.height` rows.
+    //
+    // Manual scroll: reduce skip by `log_scroll` visual rows, shifting the
+    // view downward to reveal older content above.
+    let scroll_y = if log_auto_scroll {
+        total_visual.saturating_sub(area.height as usize)
+    } else {
+        total_visual
+            .saturating_sub(area.height as usize)
+            .saturating_sub(log_scroll as usize)
+    };
+
+    frame.render_widget(paragraph.scroll((scroll_y as u16, 0)), area);
 }
