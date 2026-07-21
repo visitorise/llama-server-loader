@@ -98,6 +98,8 @@ pub struct ModelSettings {
     pub repeat_penalty: f32,
     #[serde(default)]
     pub presence_penalty: f32,
+    #[serde(default)]
+    pub extra_args: String,
 }
 
 fn default_gpu_layers() -> u32 {
@@ -138,6 +140,7 @@ impl Default for ModelSettings {
             min_p: 0.0,
             repeat_penalty: default_penalty(),
             presence_penalty: 0.0,
+            extra_args: String::new(),
         }
     }
 }

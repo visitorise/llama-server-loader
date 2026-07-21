@@ -110,6 +110,7 @@ pub struct App {
     pub graph_mode: bool,
     pub mouse_select_start: Option<(u16, u16)>,
     pub mouse_select_end: Option<(u16, u16)>,
+    pub show_llama_args: bool,
 }
 
 impl App {
@@ -162,6 +163,7 @@ impl App {
             graph_mode: false,
             mouse_select_start: None,
             mouse_select_end: None,
+            show_llama_args: false,
         };
 
         app

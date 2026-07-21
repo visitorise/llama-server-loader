@@ -6,6 +6,7 @@ mod ui_config_tab;
 mod ui_log;
 mod ui_mid;
 mod ui_server_tab;
+mod ui_llama_args_popup;
 mod ui_update_popup;
 
 const VERSION: &str = "0.2.0";
@@ -16,6 +17,7 @@ use ratatui::{
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
+    prelude::Size,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Tabs, Widget},
@@ -180,6 +182,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 app.log_auto_scroll,
             );
 
+            if app.show_llama_args {
+                if let Some(model) = app.selected_model_settings() {
+                    let args = server_manager::build_args_display(&app.config.common, model);
+                    ui_llama_args_popup::render_llama_args_popup(frame, area, &args);
+                }
+            }
+
             if app.show_update_popup {
                 ui_update_popup::render_update_popup(frame, area, &app.update_output);
             }
@@ -217,6 +226,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     handle_key(&mut app, key, &mut update_rx, &mut update_handle);
                 }
                 Event::Mouse(mouse) => {
+                    let term_size = terminal.size().unwrap_or(Size::new(80, 24));
+                    let term_area = Rect::new(0, 0, term_size.width, term_size.height);
+
                     match mouse.kind {
                         MouseEventKind::Down(MouseButton::Left) => {
                             app.mouse_select_start = Some((mouse.column, mouse.row));
@@ -229,7 +241,62 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             let start = app.mouse_select_start.take();
                             let end = app.mouse_select_end.take();
                             if let (Some(start), Some(end)) = (start, end) {
-                                if let Ok(lines) = screen_lines.try_borrow() {
+                                if start == end {
+                                    if !(app.show_llama_args || app.show_update_popup) {
+                                        if start.1 == 0 {
+                                            if let Some(tab) = hit_test_tab(start.0, term_area) {
+                                                app.tab = tab;
+                                            }
+                                        } else if app.tab == AppTab::Server {
+                                            if let Some(idx) = hit_test_model_list(start.0, start.1, &app, term_area) {
+                                                app.selected_model_idx = idx;
+                                            } else if let Some(action) = hit_test_server_button(start.0, start.1, &app, term_area) {
+                                                match action {
+                                                    "run" => {
+                                                        if app.server_state == ServerState::Idle {
+                                                            if let Err(e) = app.start_server() {
+                                                                app.log_lines.push(format!("[error] {e}"));
+                                                            }
+                                                        }
+                                                    }
+                                                    "stop" => {
+                                                        if app.server_state == ServerState::Running {
+                                                            if let Err(e) = app.stop_server() {
+                                                                app.log_lines.push(format!("[error] {e}"));
+                                                            }
+                                                        }
+                                                    }
+                                                    "llama_args" => {
+                                                        if app.server_state == ServerState::Idle {
+                                                            app.show_llama_args = !app.show_llama_args;
+                                                        }
+                                                    }
+                                                    "exit" => {
+                                                        app.should_quit = true;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                        } else if app.tab == AppTab::Configure {
+                                            if let Some((section, idx)) = hit_test_config_tab(start.0, start.1, &app, term_area) {
+                                                app.config_edit.section = section;
+                                                match section {
+                                                    app::ConfigSection::Common => {
+                                                        app.config_edit.common_idx = idx;
+                                                    }
+                                                    app::ConfigSection::ModelList => {
+                                                        app.config_edit.model_list_idx = idx;
+                                                        app.config_edit.model_field_idx = 0;
+                                                    }
+                                                    app::ConfigSection::ModelSettings => {
+                                                        app.config_edit.model_field_idx = idx;
+                                                    }
+                                                }
+                                                app.config_edit.follow_selection();
+                                            }
+                                        }
+                                    }
+                                } else if let Ok(lines) = screen_lines.try_borrow() {
                                     let text = extract_text(&lines, start, end);
                                     if !text.is_empty() {
                                         std::thread::spawn(move || {
@@ -254,11 +321,37 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         MouseEventKind::ScrollUp => {
                             if app.tab == AppTab::Server {
                                 app.scroll_up(3);
+                            } else if app.tab == AppTab::Configure {
+                                match app.config_edit.section {
+                                    app::ConfigSection::Common => {
+                                        app.config_edit.common_scroll = app.config_edit.common_scroll.saturating_sub(3);
+                                        app.config_edit.common_idx = app.config_edit.common_idx.saturating_sub(3);
+                                    }
+                                    app::ConfigSection::ModelSettings => {
+                                        app.config_edit.model_scroll = app.config_edit.model_scroll.saturating_sub(3);
+                                        app.config_edit.model_field_idx = app.config_edit.model_field_idx.saturating_sub(3);
+                                    }
+                                    _ => {}
+                                }
+                                app.config_edit.follow_selection();
                             }
                         }
                         MouseEventKind::ScrollDown => {
                             if app.tab == AppTab::Server {
                                 app.scroll_down(3);
+                            } else if app.tab == AppTab::Configure {
+                                match app.config_edit.section {
+                                    app::ConfigSection::Common => {
+                                        app.config_edit.common_scroll = app.config_edit.common_scroll.saturating_add(3).min(COMMON_FIELDS.len().saturating_sub(1) as u16);
+                                        app.config_edit.common_idx = (app.config_edit.common_idx + 3).min(COMMON_FIELDS.len().saturating_sub(1));
+                                    }
+                                    app::ConfigSection::ModelSettings => {
+                                        app.config_edit.model_scroll = app.config_edit.model_scroll.saturating_add(3).min(MODEL_FIELDS.len().saturating_sub(1) as u16);
+                                        app.config_edit.model_field_idx = (app.config_edit.model_field_idx + 3).min(MODEL_FIELDS.len().saturating_sub(1));
+                                    }
+                                    _ => {}
+                                }
+                                app.config_edit.follow_selection();
                             }
                         }
                         _ => {}
@@ -267,6 +360,20 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 _ => {}
             }
         }
+
+        if app.should_quit {
+            break;
+        }
+    }
+
+    if app.server_state == ServerState::Running {
+        let _ = app.stop_server();
+    }
+
+    drop(app);
+
+    Ok(())
+}
 
 fn extract_text(lines: &[String], start: (u16, u16), end: (u16, u16)) -> String {
     let min_row = (start.1).min(end.1) as usize;
@@ -293,18 +400,210 @@ fn extract_text(lines: &[String], start: (u16, u16), end: (u16, u16)) -> String 
     result
 }
 
-        if app.should_quit {
-            break;
-        }
+/// Hit-test the tab bar (row 0). Returns which tab was clicked.
+/// ratatui Tabs renders left-aligned: pad(1) + title + pad(1) + divider(1) + pad(1) + title + pad(1)
+fn hit_test_tab(col: u16, area: Rect) -> Option<AppTab> {
+    let _ = area;
+    // " Server " occupies cols 1..9
+    if col >= 1 && col < 9 {
+        return Some(AppTab::Server);
+    }
+    // " Configure " occupies cols 12..23
+    if col >= 12 && col < 23 {
+        return Some(AppTab::Configure);
+    }
+    None
+}
+
+/// Hit-test the server-tab button bar. Recomputes the same layout as
+/// `ui_server_tab::render_server_tab` + `render_buttons` to find button rects.
+fn hit_test_server_button(col: u16, row: u16, app: &App, term_area: Rect) -> Option<&'static str> {
+    // Recompute main_chunks to find server_area (main_chunks[1])
+    let server_tab_h = if app.server_state == ServerState::Running { 3u16 } else { 22u16 };
+    let mid_h = if app.graph_mode { app.config.common.mid_pane_height } else { 6u16 };
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(server_tab_h),
+            Constraint::Length(mid_h),
+            Constraint::Min(3),
+        ])
+        .split(term_area);
+    let server_area = main_chunks[1];
+
+    // Recompute server tab inner layout (same as render_server_tab)
+    let (model_con, btn_con) = if app.server_state == ServerState::Running {
+        (Constraint::Length(1), Constraint::Length(1))
+    } else {
+        (Constraint::Min(5), Constraint::Length(3))
+    };
+    let server_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([model_con, btn_con, Constraint::Length(1)])
+        .split(server_area);
+    let btn_area = server_chunks[1];
+
+    // Check if click is within the button bar
+    if row < btn_area.y || row >= btn_area.y + btn_area.height {
+        return None;
     }
 
+    // Recompute horizontal button layout (same as render_buttons)
+    let btn_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(18),  // Run
+            Constraint::Length(18),  // Stop
+            Constraint::Min(0),      // spacer
+            Constraint::Length(16),  // llama Args
+            Constraint::Length(10),  // Exit
+        ])
+        .split(btn_area);
+
+    let is_running = app.server_state == ServerState::Running;
+    let run_text_len: u16 = 7;   // "[ Run ]"
+    let stop_text_len: u16 = if is_running { 8 } else { 6 }; // "[ Stop ]" / "[Stop]"
+    let llama_text_len: u16 = 13; // "[llama Args]"
+    let exit_text_len: u16 = 8;   // "[ Exit ]"
+
+    let hit = |chunk_idx: usize, text_len: u16| -> bool {
+        let c = btn_chunks[chunk_idx];
+        col >= c.x && col < c.x + text_len
+    };
+
+    if hit(0, run_text_len) {
+        Some("run")
+    } else if hit(1, stop_text_len) {
+        Some("stop")
+    } else if hit(3, llama_text_len) {
+        Some("llama_args")
+    } else if hit(4, exit_text_len) {
+        Some("exit")
+    } else {
+        None
+    }
+}
+
+fn hit_test_model_list(col: u16, row: u16, app: &App, term_area: Rect) -> Option<usize> {
     if app.server_state == ServerState::Running {
-        let _ = app.stop_server();
+        return None;
     }
 
-    drop(app);
+    let server_tab_h = 22u16;
+    let mid_h = if app.graph_mode { app.config.common.mid_pane_height } else { 6u16 };
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(server_tab_h),
+            Constraint::Length(mid_h),
+            Constraint::Min(3),
+        ])
+        .split(term_area);
+    let server_area = main_chunks[1];
 
-    Ok(())
+    let server_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(3), Constraint::Length(1)])
+        .split(server_area);
+    let list_area = server_chunks[0];
+
+    let content_y = list_area.y + 1;
+    let content_h = list_area.height.saturating_sub(2);
+
+    if row < content_y || row >= content_y + content_h {
+        return None;
+    }
+    if col < list_area.x + 1 || col >= list_area.x + list_area.width - 1 {
+        return None;
+    }
+
+    let idx = (row - content_y) as usize;
+    if idx < app.config.models.len() {
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+/// Hit-test the config-tab sections. Recomputes the same layout as
+/// `ui_config_tab::render_config_tab` to find which section + item was clicked.
+fn hit_test_config_tab(col: u16, row: u16, app: &App, term_area: Rect) -> Option<(app::ConfigSection, usize)> {
+    // Recompute main_chunks to find config_area (main_chunks[1])
+    let server_tab_h = if app.server_state == ServerState::Running { 3u16 } else { 22u16 };
+    let mid_h = if app.graph_mode { app.config.common.mid_pane_height } else { 6u16 };
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(server_tab_h),
+            Constraint::Length(mid_h),
+            Constraint::Min(3),
+        ])
+        .split(term_area);
+    let config_area = main_chunks[1];
+
+    // Recompute config tab layout (same as render_config_tab)
+    let common_h = (config_area.height / 2).saturating_sub(2);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(common_h), Constraint::Min(0)])
+        .split(config_area);
+
+    let model_w = (chunks[1].width / 2).saturating_sub(5);
+    let bottom_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(model_w), Constraint::Min(0)])
+        .split(chunks[1]);
+
+    let common_area = chunks[0];
+    let model_list_area = bottom_chunks[0];
+    let model_settings_area = bottom_chunks[1];
+
+    // Check Common section
+    if row >= common_area.y && row < common_area.y + common_area.height
+        && col >= common_area.x && col < common_area.x + common_area.width
+    {
+        // Each field is one row. The block title takes 1 row (top border), so
+        // the first field is at common_area.y + 1 (after top border).
+        // The border is rendered by ratatui Block, so inner content starts at y+1.
+        let inner_row = row.saturating_sub(common_area.y + 1);
+        let scroll = app.config_edit.common_scroll;
+        let idx = (inner_row + scroll) as usize;
+        if idx < COMMON_FIELDS.len() {
+            return Some((app::ConfigSection::Common, idx));
+        }
+        return Some((app::ConfigSection::Common, COMMON_FIELDS.len().saturating_sub(1)));
+    }
+
+    // Check Model List section
+    if row >= model_list_area.y && row < model_list_area.y + model_list_area.height
+        && col >= model_list_area.x && col < model_list_area.x + model_list_area.width
+    {
+        // Inner content after top border
+        let inner_row = row.saturating_sub(model_list_area.y + 1);
+        let idx = inner_row as usize;
+        if idx < app.config.models.len() {
+            return Some((app::ConfigSection::ModelList, idx));
+        }
+        return Some((app::ConfigSection::ModelList, app.config.models.len().saturating_sub(1)));
+    }
+
+    // Check Model Settings section
+    if row >= model_settings_area.y && row < model_settings_area.y + model_settings_area.height
+        && col >= model_settings_area.x && col < model_settings_area.x + model_settings_area.width
+    {
+        let inner_row = row.saturating_sub(model_settings_area.y + 1);
+        let scroll = app.config_edit.model_scroll;
+        let idx = (inner_row + scroll) as usize;
+        if idx < MODEL_FIELDS.len() {
+            return Some((app::ConfigSection::ModelSettings, idx));
+        }
+        return Some((app::ConfigSection::ModelSettings, MODEL_FIELDS.len().saturating_sub(1)));
+    }
+
+    None
 }
 
 fn handle_key(
@@ -313,6 +612,13 @@ fn handle_key(
     update_rx: &mut Option<mpsc::Receiver<String>>,
     update_handle: &mut Option<std::thread::JoinHandle<()>>,
 ) {
+    if app.show_llama_args {
+        if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
+            app.show_llama_args = false;
+        }
+        return;
+    }
+
     if app.show_update_popup {
         if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
             app.show_update_popup = false;
@@ -360,6 +666,11 @@ fn handle_server_tab_key(app: &mut App, key: KeyCode) {
         }
         KeyCode::Char('g') | KeyCode::Char('G') => {
             app.graph_mode = !app.graph_mode;
+        }
+        KeyCode::Char('l') | KeyCode::Char('L') => {
+            if app.server_state == ServerState::Idle {
+                app.show_llama_args = !app.show_llama_args;
+            }
         }
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
             app.should_quit = true;

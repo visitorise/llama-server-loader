@@ -64,7 +64,7 @@ fn render_model_wave(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_server_hint(frame: &mut Frame, area: Rect) {
     let hint = Paragraph::new(Line::from(Span::styled(
-        " [Tab] Configure tab  [↑↓] Select model  [Enter/r] Run  [s] Stop  [q] Quit",
+        " [Tab] Configure  [↑↓] Select  [Enter/r] Run  [s] Stop  [l] llama Args  [q] Quit",
         Style::default().fg(Color::DarkGray),
     )));
     frame.render_widget(hint, area);
@@ -107,13 +107,14 @@ fn render_model_list(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-fn render_buttons(frame: &mut Frame, area: Rect, app: &App) {
+pub fn render_buttons(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, &'static str)> {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(18),
             Constraint::Length(18),
             Constraint::Min(0),
+            Constraint::Length(16),
             Constraint::Length(10),
         ])
         .split(area);
@@ -138,9 +139,22 @@ fn render_buttons(frame: &mut Frame, area: Rect, app: &App) {
     let stop = Paragraph::new(Line::from(Span::styled(stop_label, stop_style)));
     frame.render_widget(stop, chunks[1]);
 
+    let llama_args = Paragraph::new(Line::from(Span::styled(
+        "[llama Args]",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+    frame.render_widget(llama_args, chunks[3]);
+
     let exit = Paragraph::new(Line::from(Span::styled(
         "[ Exit ]",
         Style::default().fg(Color::White),
     )));
-    frame.render_widget(exit, chunks[3]);
+    frame.render_widget(exit, chunks[4]);
+
+    vec![
+        (chunks[0], "run"),
+        (chunks[1], "stop"),
+        (chunks[3], "llama_args"),
+        (chunks[4], "exit"),
+    ]
 }

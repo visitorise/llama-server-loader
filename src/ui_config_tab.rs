@@ -62,6 +62,7 @@ pub const MODEL_FIELDS: &[(&str, fn(&crate::model::ModelSettings) -> String, fn(
     ("min_p", |m| format!("{:.2}", m.min_p), |m, v| { if let Ok(f) = v.parse() { m.min_p = f } }),
     ("repeat_penalty", |m| format!("{:.1}", m.repeat_penalty), |m, v| { if let Ok(f) = v.parse() { m.repeat_penalty = f } }),
     ("presence_penalty", |m| format!("{:.1}", m.presence_penalty), |m, v| { if let Ok(f) = v.parse() { m.presence_penalty = f } }),
+    ("extra_args", |m| m.extra_args.clone(), |m, v| m.extra_args = v),
 ];
 
 pub fn render_config_tab(frame: &mut Frame, area: Rect, app: &App) {
