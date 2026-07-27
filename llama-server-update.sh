@@ -28,8 +28,8 @@ if [[ -z "$server_bin" ]]; then
     exit 1
 fi
 
-raw_ver="$($server_bin 2>&1)"
-local_ver=$(echo "$raw_ver" | grep -oP '\[version:\s*\K[0-9]+' || echo "0")
+raw_ver=$("$server_bin" --version 2>&1) || { echo "Could not get version"; exit 1; }
+local_ver=$(echo "$raw_ver" | grep -oP 'version:\s*\K[0-9]+' || echo "0")
 echo "Local version: $local_ver"
 
 tag=$(curl -sL --max-time 15 "https://api.github.com/repos/$GITHUB_REPO/releases/latest" \
@@ -79,7 +79,7 @@ if ! gzip -t "$DOWNLOAD_TMP/$asset_name" 2>/dev/null; then
     exit 1
 fi
 
-backup_dir="$INSTALL_PATH/../backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
+backup_dir="$(dirname "$INSTALL_PATH")/backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
 mkdir -p "$(dirname "$backup_dir")"
 cp -a "$INSTALL_PATH" "$backup_dir"
 echo "Backup saved: $backup_dir"
