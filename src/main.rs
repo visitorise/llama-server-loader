@@ -863,7 +863,12 @@ fn handle_config_tab_key(
         KeyCode::Char('c') | KeyCode::Char('C') => {
             if !app.show_update_popup {
                 let script = app.config.common.update_script_path.clone();
-                let (rx, handle) = ui_update_popup::start_update_check(&script);
+                let install_path = std::path::Path::new(&app.config.common.llama_server_path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .to_string_lossy()
+                    .to_string();
+                let (rx, handle) = ui_update_popup::start_update_check(&script, &install_path);
                 app.update_output.clear();
                 app.show_update_popup = true;
                 *update_rx = Some(rx);

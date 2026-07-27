@@ -10,12 +10,14 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 
-pub fn start_update_check(script_path: &str) -> (mpsc::Receiver<String>, thread::JoinHandle<()>) {
+pub fn start_update_check(script_path: &str, install_path: &str) -> (mpsc::Receiver<String>, thread::JoinHandle<()>) {
     let script = script_path.to_string();
+    let install = install_path.to_string();
     let (tx, rx) = mpsc::channel();
     let handle = thread::spawn(move || {
         let _ = tx.send("Checking for updates...\n".to_string());
         match Command::new(script)
+            .arg(&install)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

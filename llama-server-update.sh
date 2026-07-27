@@ -1,13 +1,28 @@
 #!/bin/bash
 set -euo pipefail
 
+# Usage: ./llama-server-update.sh <installation_path>
+# Example: ./llama-server-update.sh ~/AIAgent/llama.cpp/llama_cpp
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <installation_path>"
+    echo "Example: $0 ~/AIAgent/llama.cpp/llama_cpp"
+    exit 1
+fi
+
+INSTALL_PATH="$1"
 GITHUB_REPO="ggml-org/llama.cpp"
-LLAMA_SRV_PATH="$HOME/AIAgent/llama.cpp/llama_cpp"
 DOWNLOAD_TMP="/tmp/llama-cpp-download"
 
-server_bin=$(find "$LLAMA_SRV_PATH" -maxdepth 1 -name "llama-server" -type f 2>/dev/null | head -1)
+# Validate installation path
+if [[ ! -d "$INSTALL_PATH" ]]; then
+    echo "ERROR: Installation path does not exist: $INSTALL_PATH"
+    exit 1
+fi
+
+server_bin=$(find "$INSTALL_PATH" -maxdepth 1 -name "llama-server" -type f 2>/dev/null | head -1)
 if [[ -z "$server_bin" ]]; then
-    echo "llama-server not found in $LLAMA_SRV_PATH"
+    echo "llama-server not found in $INSTALL_PATH"
     exit 1
 fi
 
@@ -28,9 +43,9 @@ fi
 echo "Update available: $local_ver -> $latest_ver"
 
 gpu_backend="cpu"
-if [[ -f "$LLAMA_SRV_PATH/libggml-vulkan.so" ]]; then
+if [[ -f "$INSTALL_PATH/libggml-vulkan.so" ]]; then
     gpu_backend="vulkan"
-elif [[ -f "$LLAMA_SRV_PATH/libggml-rocm.so" ]]; then
+elif [[ -f "$INSTALL_PATH/libggml-rocm.so" ]]; then
     gpu_backend="rocm"
 elif ldd "$server_bin" 2>/dev/null | grep -qi "cuda"; then
     gpu_backend="cuda"
@@ -62,8 +77,9 @@ if ! gzip -t "$DOWNLOAD_TMP/$asset_name" 2>/dev/null; then
     exit 1
 fi
 
-backup_dir="$HOME/AIAgent/llama.cpp/backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
-cp -a "$LLAMA_SRV_PATH" "$backup_dir"
+backup_dir="$INSTALL_PATH/backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
+mkdir -p "$INSTALL_PATH/backup"
+cp -a "$INSTALL_PATH" "$backup_dir"
 echo "Backup saved: $backup_dir"
 
 extract_dir="$DOWNLOAD_TMP/extracted"
@@ -71,8 +87,8 @@ rm -rf "$extract_dir"
 mkdir -p "$extract_dir"
 tar xzf "$DOWNLOAD_TMP/$asset_name" -C "$extract_dir"
 
-rm -rf "$LLAMA_SRV_PATH"
-cp -a "$extract_dir"/* "$LLAMA_SRV_PATH/"
+rm -rf "$INSTALL_PATH"
+cp -a "$extract_dir"/* "$INSTALL_PATH/"
 rm -rf "$DOWNLOAD_TMP"
 
 echo "Update complete!"

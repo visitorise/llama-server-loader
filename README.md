@@ -1,22 +1,47 @@
-# llama-server Loader
+# llama-server-loader
 
-llama-server 실행을 관리하는 TUI(터미널 UI) 런처입니다.
-기존 6개의 중복된 셸 스크립트를 하나의 설정-driven 바이너리로 대체합니다.
+A TUI (Terminal UI) launcher for managing llama-server execution. Replaces multiple shell scripts with a single configuration-driven binary.
+
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
 ## Features
 
-- **TUI 인터페이스** — ratatui 기반, 키보드로 모델 선택 및 서버 시작/중지
-- **설정 파일 기반** — `~/.config/llama-server-loader/config.json` 에 모든 설정 저장
-- **모델 자동 스캔** — 서버 디렉토리에서 `.gguf` 파일 자동 탐색
-- **로그 실시간 출력** — 서버 stdout/stderr 실시간 표시, 색상 구분
-- **자동 업데이트** — GitHub Release에서 llama.cpp 바이너리 다운로드 및 적용
-- **Graceful shutdown** — SIGTERM → 20초 대기 → SIGKILL
+### 🖥️ TUI Interface
+- High-performance terminal UI built with **ratatui**
+- **Mouse support**: Click, drag (text selection → clipboard copy), scroll
+- **Real-time logs**: Color-distinguished server stdout/stderr display
+- **GPU monitoring**: Braille graphs for real-time GPU Utilization/Memory display
+
+### ⚙️ Configuration Management
+- JSON configuration file (`~/.config/llama-server-loader/config.json`)
+- **Common settings**: llama-server path, host, port, GPU offload, Flash Attention, speculative decoding, etc.
+- **Per-model settings**: GPU layers, context size, KV cache quantization, sampling parameters, extra arguments
+- Direct configuration editing in TUI (Configure tab)
+
+### 🚀 Server Management
+- **One-click execution**: Select model and press Enter/r to start server
+- **Graceful Shutdown**: SIGTERM → 20s wait → SIGKILL
+- **Log streaming**: Real-time log display with auto-scroll and manual scroll support
+- **LLama Args popup**: Preview execution arguments
+
+### 📊 GPU Monitoring (inspired by nvtop)
+- NVIDIA GPU Utilization/Memory braille graphs
+- Real-time GPU metrics display (temperature, power, memory usage)
+- **nvtop-style** visualization — braille character-based graphs
+
+### 🔄 Auto Update
+- Download latest llama.cpp binaries from GitHub Release
+- Automatic GPU backend detection (Vulkan/ROCm/CUDA)
+- Automatic backup and replacement
 
 ## Requirements
 
-- Rust 2021 edition (빌드 시)
-- `llama-server` 바이너리 (llama.cpp 프로젝트)
-- Linux (Unix signal/process API 사용)
+- Rust 2021 edition (for building)
+- `llama-server` binary (from llama.cpp project)
+- Linux (uses Unix signal/process API)
+- NVIDIA GPU: NVML library (included with nvidia-driver)
 
 ## Build
 
@@ -25,35 +50,7 @@ cd llama-server-loader
 cargo build --release
 ```
 
-빌드된 바이너리는 `target/release/llama-server-loader` 에 위치합니다.
-
-## Configuration
-
-설정 파일: `~/.config/llama-server-loader/config.json`
-
-처음 실행 시 기본 설정 파일이 자동 생성됩니다.
-`Configure` 탭에서 설정을 편집할 수 있습니다.
-
-### Common Settings (공통 설정)
-
-| 항목 | 기본값 | 설명 |
-|------|--------|------|
-| `llama_server_path` | `~/AIAgent/llama.cpp/llama_cpp` | llama-server 실행 파일이 위치한 디렉토리 |
-| `host` | `127.0.0.1` | 서버 바인딩 IP |
-| `port` | 8888 | 서버 포트 |
-| `n_gpu_layers` | 50 | GPU 오프로드 레이어 수 (-1 = 전체) |
-| `ctx_size` | 4096 | 컨텍스트 크기 (token) |
-| `mid_pane_height` | 3 | 중간 패널 높이 (nvtop 등 예약) |
-| `extra_args` | `""` | llama-server에 추가로 전달할 인자 |
-
-### Model Settings (모델별 설정)
-
-| 항목 | 설명 |
-|------|------|
-| `name` | 모델 표시 이름 |
-| `model_path` | `.gguf` 파일 경로 |
-| `prompt_cache` | 프롬프트 캐시 파일 경로 (선택) |
-| `extra_args` | 모델별 추가 인자 (선택) |
+Built binary: `target/release/llama-server-loader`
 
 ## Usage
 
@@ -61,65 +58,142 @@ cargo build --release
 ./llama-server-loader
 ```
 
-### Key Bindings
+### Screen Layout
 
-**Server 탭:**
+- **Top tab bar**: Switch between Server / Configure tabs, version display
+- **Server tab**: Model list selection + server control buttons (Run, Stop, Llama Args, Exit)
+- **Configure tab**: Common settings and per-model settings editor
+- **GPU Monitoring (middle)**: Real-time GPU Utilization/Memory braille graphs (nvtop-style)
+- **Log panel (bottom)**: Server stdout/stderr real-time output
 
-| 키 | 동작 |
+### Keyboard Shortcuts
+
+**Server Tab:**
+
+| Key | Action |
 |---|------|
-| `↑` / `k` | 모델 선택 위로 |
-| `↓` / `j` | 모델 선택 아래로 |
-| `Enter` / `r` / `R` | 선택한 모델로 서버 시작 |
-| `s` / `S` | 실행 중인 서버 중지 |
-| `Tab` | Configure 탭으로 전환 |
-| `q` / `Q` / `Esc` | 종료 |
+| `↑` / `k` | Move model selection up |
+| `↓` / `j` | Move model selection down |
+| `Enter` / `r` | Start server with selected model |
+| `s` | Stop running server |
+| `l` | Show Llama Args popup |
+| `Tab` | Switch to Configure tab |
+| `q` / `Esc` | Quit |
 
-**Configure 탭:**
+**Configure Tab:**
 
-| 키 | 동작 |
+| Key | Action |
 |---|------|
-| `↑` / `k` | 모델 목록 위로 |
-| `↓` / `j` | 모델 목록 아래로 |
-| `c` / `C` | 업데이트 확인 (GitHub Release) |
-| `Tab` | Server 탭으로 전환 |
+| `↑` / `k` | Move up |
+| `↓` / `j` | Move down |
+| `Enter` / `e` | Toggle edit mode |
+| `c` | Check for updates (GitHub Release) |
+| `Tab` | Switch to Server tab |
+
+### Mouse Support
+
+| Action | Function |
+|------|------|
+| **Click** | Execute buttons, switch tabs, select config items, select models |
+| **Drag** | Select text → auto clipboard copy (wl-copy) |
+| **Scroll** | Scroll log/config areas |
+| **Click during popup** | Blocked (clipboard copy still works) |
+
+## Configuration
+
+Config file: `~/.config/llama-server-loader/config.json`
+
+Default config is created automatically on first run.
+
+> **⚠️ Restart required after initial setup**: After configuring `llama_server_path` and `model_dir` on first run, you must restart the app for the model list to load and enable detailed configuration.
+
+### Common Settings
+
+| Item | Default | Description |
+|------|--------|------|
+| `llama_server_path` | `llama-server` | Full path to llama-server executable (including command). Example: `/home/user/AIAgent/llama.cpp/llama_cpp/llama-server` |
+| `host` | `0.0.0.0` | Server binding IP |
+| `port` | `11400` | Server port |
+| `model_dir` | `""` (auto-detect) | Model files directory |
+| `no_mmap` | `true` | Use `--no-mmap` flag |
+| `flash_attn` | `on` | Enable Flash Attention |
+| `spec_type` | `none` | Speculative decoding type |
+| `spec_draft_n_max` | `2` | Max speculative drafting count |
+| `extra_args` | `""` | Additional llama-server arguments |
+| `mid_pane_height` | `19` | Middle panel (GPU graph) height |
+
+### Model Settings
+
+| Item | Default | Description |
+|------|--------|------|
+| `name` | filename | Model display name |
+| `file` | - | `.gguf` filename |
+| `gpu_layers` | `75` | GPU offload layer count |
+| `ctx_size` | `262144` | Context size (tokens) |
+| `kv_k` | `q8_0` | KV Cache Key quantization |
+| `kv_v` | `q8_0` | KV Cache Value quantization |
+| `cpu_moe` | `0` | CPU MoE layer count |
+| `temperature` | `1.0` | Sampling temperature |
+| `top_k` | `40` | Top-K sampling |
+| `top_p` | `0.95` | Top-P (nucleus) sampling |
+| `min_p` | `0.0` | Min-P sampling |
+| `repeat_penalty` | `1.1` | Repeat penalty |
+| `presence_penalty` | `0.0` | Presence penalty |
+| `extra_args` | `""` | Additional model-specific arguments |
 
 ## Update
 
-`Configure` 탭에서 `c` 키를 누르면 `llama-server-update.sh` 스크립트가 실행되어 최신 버전의 llama.cpp 바이너리를 다운로드합니다.
+Press `c` in the Configure tab to run `llama-server-update.sh` script, which downloads the latest llama.cpp binary.
 
-수동 실행:
+Manual execution:
 ```bash
 ./llama-server-update.sh
 ```
-
-업데이트 과정:
-1. 현재 버전 확인
-2. GitHub API로 최신 릴리스 태그 조회
-3. GPU 백엔드 감지 (vulkan/rocm/cpu)
-4. 적합한 아카이브 다운로드
-5. 기존 파일 백업 (`~/AIAgent/llama.cpp/backup/`)
-6. 새 바이너리로 교체
 
 ## Project Structure
 
 ```
 llama-server-loader/
 ├── Cargo.toml
-├── llama-server-update.sh   # 업데이트 스크립트
+├── llama-server-update.sh      # Update script
 ├── src/
-│   ├── main.rs              # TUI event loop, keyboard dispatch
-│   ├── app.rs               # App state machine (Idle/Running)
-│   ├── model.rs             # 데이터 타입, .gguf 스캐너
-│   ├── config.rs            # JSON 설정 load/save/sync
-│   ├── server_manager.rs    # 프로세스 spawn/kill, mpsc 이벤트
-│   ├── ui_log.rs            # 로그 표시 패널
-│   ├── ui_mid.rs            # 중간 패널 (nvtop placeholder)
-│   ├── ui_server_tab.rs     # Server 탭 (모델 리스트 + 버튼)
-│   ├── ui_config_tab.rs     # Configure 탭 (설정 편집)
-│   └── ui_update_popup.rs   # 업데이트 진행 팝업
+│   ├── main.rs                 # TUI event loop, keyboard/mouse dispatch
+│   ├── app.rs                  # App state machine (Idle/Running)
+│   ├── model.rs                # Data types, .gguf scanner, GPU metrics
+│   ├── config.rs               # JSON config load/save/sync
+│   ├── server_manager.rs       # Process spawn/kill, mpsc events
+│   ├── ui_log.rs               # Log display panel
+│   ├── ui_mid.rs               # GPU monitoring panel (braille graphs)
+│   ├── ui_server_tab.rs        # Server tab (model list + buttons)
+│   ├── ui_config_tab.rs        # Configure tab (settings editor)
+│   ├── ui_update_popup.rs      # Update progress popup
+│   └── ui_llama_args_popup.rs  # Llama Args preview popup
 └── README.md
 ```
 
 ## License
 
 MIT
+
+### Third-Party Licenses
+
+#### nvtop (GPU Monitoring Inspiration)
+
+The GPU monitoring braille graphs in this project were inspired by [nvtop](https://github.com/Syllo/nvtop)'s visualization approach.
+
+nvtop is a GPU & Accelerator process monitoring tool that supports AMD, Apple, Huawei, Intel, NVIDIA, and Qualcomm GPUs.
+
+- **Original Repository**: https://github.com/Syllo/nvtop
+- **License**: GNU General Public License v3.0 or later (GPL-3.0-or-later)
+
+In accordance with nvtop's license terms, the braille graph visualization used in this project complies with GPLv3 conditions. Under GPLv3 requirements:
+
+1. **Source Code Disclosure**: The entire source code of this project is released under the MIT license
+2. **Change Notification**: This README explicitly states that this project references nvtop's visualization approach
+3. **License Maintenance**: To comply with GPLv3's copyleft requirements, while this project's license is MIT, the GPU monitoring code inspired by nvtop follows GPLv3
+
+For details, see the GNU GPLv3 license text: https://www.gnu.org/licenses/gpl-3.0.html
+
+---
+
+**Note**: This project does not directly copy nvtop's source code. The visualization concept (braille character-based graphs) was referenced and implemented independently.
