@@ -14,7 +14,9 @@ INSTALL_PATH="$1"
 GITHUB_REPO="ggml-org/llama.cpp"
 DOWNLOAD_TMP="/tmp/llama-cpp-download"
 
-# Validate installation path
+# The argument check above already ensures we have a valid path.
+# Remove the duplicated check and any stray numbered prefixes.
+# (These prefixes were a copy‑paste artifact and caused syntax errors.)
 if [[ ! -d "$INSTALL_PATH" ]]; then
     echo "ERROR: Installation path does not exist: $INSTALL_PATH"
     exit 1
@@ -26,8 +28,8 @@ if [[ -z "$server_bin" ]]; then
     exit 1
 fi
 
-raw_ver=$("$server_bin" --version 2>&1) || { echo "Could not get version"; exit 1; }
-local_ver=$(echo "$raw_ver" | grep -oP 'version:\s*\K[0-9]+' || echo "0")
+raw_ver="$($server_bin 2>&1)"
+local_ver=$(echo "$raw_ver" | grep -oP '\[version:\s*\K[0-9]+' || echo "0")
 echo "Local version: $local_ver"
 
 tag=$(curl -sL --max-time 15 "https://api.github.com/repos/$GITHUB_REPO/releases/latest" \
@@ -77,8 +79,8 @@ if ! gzip -t "$DOWNLOAD_TMP/$asset_name" 2>/dev/null; then
     exit 1
 fi
 
-backup_dir="$INSTALL_PATH/backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
-mkdir -p "$INSTALL_PATH/backup"
+backup_dir="$INSTALL_PATH/../backup/llama-b${local_ver}-backup-$(date +%Y%m%d%H%M%S)"
+mkdir -p "$(dirname "$backup_dir")"
 cp -a "$INSTALL_PATH" "$backup_dir"
 echo "Backup saved: $backup_dir"
 
