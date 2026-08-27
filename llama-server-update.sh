@@ -28,14 +28,26 @@ if [[ -z "$server_bin" ]]; then
     exit 1
 fi
 
+# Get local version (build number from --version output)
 raw_ver=$("$server_bin" --version 2>&1) || { echo "Could not get version"; exit 1; }
-local_ver=$(echo "$raw_ver" | grep -oP 'version:\s*\K[0-9]+' || echo "0")
-echo "Local version: $local_ver"
+local_ver=$(echo "$raw_ver" | grep -oP 'build\s+\K[0-9]+' || echo "0")
+echo "Local version (build): $local_ver"
 
-tag=$(curl -sL --max-time 15 "https://api.github.com/repos/$GITHUB_REPO/releases/latest" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null) || { echo "Could not fetch latest version"; exit 1; }
-latest_ver=$(echo "$tag" | grep -oP '[0-9]+') || { echo "Could not parse version from $tag"; exit 1; }
-echo "Latest version: $latest_ver ($tag)"
+# Get latest build tag (bXXXX format) that has pre-built Ubuntu vulkan binaries
+tag=$(curl -sL --max-time 15 "https://api.github.com/repos/$GITHUB_REPO/releases" \
+    | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for r in data:
+    if r['tag_name'].startswith('b') and r['tag_name'][1:].isdigit():
+        assets = [a['name'] for a in r.get('assets', [])]
+        if any('ubuntu-vulkan-x64' in a for a in assets):
+            print(r['tag_name'])
+            break
+" 2>/dev/null) || { echo "Could not fetch latest build version"; exit 1; }
+
+latest_ver=$(echo "$tag" | grep -oP 'b\K[0-9]+') || { echo "Could not parse build number from $tag"; exit 1; }
+echo "Latest version (build): $latest_ver ($tag)"
 
 if [[ "$latest_ver" -le "$local_ver" ]]; then
     echo "Already up to date."
@@ -55,9 +67,9 @@ fi
 echo "GPU backend: $gpu_backend"
 
 case "$gpu_backend" in
-    vulkan) asset_name="llama-b${latest_ver}-bin-ubuntu-vulkan-x64.tar.gz" ;;
-    rocm)   asset_name="llama-b${latest_ver}-bin-ubuntu-rocm-7.2-x64.tar.gz" ;;
-    *)      asset_name="llama-b${latest_ver}-bin-ubuntu-x64.tar.gz" ;;
+    vulkan) asset_name="llama-${tag}-bin-ubuntu-vulkan-x64.tar.gz" ;;
+    rocm)   asset_name="llama-${tag}-bin-ubuntu-rocm-7.2-x64.tar.gz" ;;
+    *)      asset_name="llama-${tag}-bin-ubuntu-x64.tar.gz" ;;
 esac
 
 download_url="https://github.com/$GITHUB_REPO/releases/download/$tag/$asset_name"
