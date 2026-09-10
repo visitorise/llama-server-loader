@@ -1,4 +1,6 @@
-use crate::model::{CommonSettings, ModelSettings, cache_dir_from_settings, model_dir_from_common};
+use crate::model::{
+    CommonSettings, ModelSettings, cache_dir_for_model, model_dir_from_common, server_path_for_model,
+};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -6,6 +8,125 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+/// Merge common + per-model settings into the full llama-server argument list.
+/// Only checkbox-enabled per-model settings are passed as arguments.
+fn build_args(common: &CommonSettings, model: &ModelSettings) -> Vec<String> {
+    let model_path = model_dir_from_common(common).join(&model.file);
+    let cache_dir = cache_dir_for_model(common, model);
+
+    let mut args: Vec<String> = vec![
+        "--log-colors".into(),
+        "on".into(),
+        "--port".into(),
+        common.port.to_string(),
+        "--host".into(),
+        common.host.clone(),
+        "--slot-save-path".into(),
+        cache_dir.to_string_lossy().to_string(),
+    ];
+
+    if model.file_enabled {
+        args.extend_from_slice(&["-m".into(), model_path.to_string_lossy().to_string()]);
+    }
+    if model.name_enabled {
+        args.extend_from_slice(&["--alias".into(), model.name.clone()]);
+    }
+    if model.gpu_layers_enabled {
+        args.extend_from_slice(&["--n-gpu-layers".into(), model.gpu_layers.clone()]);
+    }
+    if model.cpu_moe_enabled {
+        args.extend_from_slice(&["--n-cpu-moe".into(), model.cpu_moe.to_string()]);
+    }
+    if model.ctx_size_enabled {
+        args.extend_from_slice(&["--ctx-size".into(), model.ctx_size.to_string()]);
+    }
+    if model.kv_k_enabled {
+        args.extend_from_slice(&["-ctk".into(), model.kv_k.clone()]);
+    }
+    if model.kv_v_enabled {
+        args.extend_from_slice(&["-ctv".into(), model.kv_v.clone()]);
+    }
+    if model.temperature_enabled {
+        args.extend_from_slice(&["--temp".into(), model.temperature.to_string()]);
+    }
+    if model.top_p_enabled {
+        args.extend_from_slice(&["--top-p".into(), model.top_p.to_string()]);
+    }
+    if model.top_k_enabled {
+        args.extend_from_slice(&["--top-k".into(), model.top_k.to_string()]);
+    }
+    if model.min_p_enabled {
+        args.extend_from_slice(&["--min-p".into(), model.min_p.to_string()]);
+    }
+    if model.repeat_penalty_enabled {
+        args.extend_from_slice(&["--repeat-penalty".into(), model.repeat_penalty.to_string()]);
+    }
+    if model.presence_penalty_enabled {
+        args.extend_from_slice(&["--presence-penalty".into(), model.presence_penalty.to_string()]);
+    }
+    if model.no_mmap_enabled && model.no_mmap {
+        args.push("--no-mmap".into());
+    }
+    if model.flash_attn_enabled {
+        args.extend_from_slice(&["--flash-attn".into(), model.flash_attn.clone()]);
+    }
+    if model.spec_type_enabled {
+        args.extend_from_slice(&["--spec-type".into(), model.spec_type.clone()]);
+    }
+    if model.spec_draft_n_max_enabled {
+        args.extend_from_slice(&["--spec-draft-n-max".into(), model.spec_draft_n_max.to_string()]);
+    }
+    if model.model_draft_enabled && !model.model_draft.is_empty() {
+        args.extend_from_slice(&["--model-draft".into(), model.model_draft.clone()]);
+    }
+    if model.cache_ram_enabled {
+        args.extend_from_slice(&["--cache-ram".into(), model.cache_ram.to_string()]);
+    }
+    if model.load_mode_enabled && !model.load_mode.is_empty() {
+        args.extend_from_slice(&["--load-mode".into(), model.load_mode.clone()]);
+    }
+    if model.parallel_enabled {
+        args.extend_from_slice(&["--parallel".into(), model.parallel.to_string()]);
+    }
+    if model.threads_enabled {
+        args.extend_from_slice(&["--threads".into(), model.threads.to_string()]);
+    }
+    if model.moe_expert_cache_size_enabled {
+        args.extend_from_slice(&[
+            "--moe-expert-cache-size".into(),
+            model.moe_expert_cache_size.to_string(),
+        ]);
+    }
+    if model.fit_enabled {
+        args.extend_from_slice(&["--fit".into(), model.fit.clone()]);
+    }
+    if model.kv_offload_enabled {
+        args.push("--kv-offload".into());
+    }
+    if model.jinja_enabled {
+        args.push("--jinja".into());
+    }
+    if model.batch_size_enabled {
+        args.extend_from_slice(&["--batch-size".into(), model.batch_size.to_string()]);
+    }
+    if model.ubatch_size_enabled {
+        args.extend_from_slice(&["--ubatch-size".into(), model.ubatch_size.to_string()]);
+    }
+    if model.extra_args_enabled {
+        let trimmed = model.extra_args.trim();
+        if !trimmed.is_empty() {
+            args.extend(trimmed.split_whitespace().map(String::from));
+        }
+    }
+
+    let common_trimmed = common.extra_args.trim();
+    if !common_trimmed.is_empty() {
+        args.extend(common_trimmed.split_whitespace().map(String::from));
+    }
+
+    args
+}
 
 /// Messages from the server thread to the UI.
 #[derive(Debug, Clone)]
@@ -40,75 +161,16 @@ impl ServerManager {
             return Err("Server is already running".to_string());
         }
 
-        let server_path = &common.llama_server_path;
-        let model_dir = model_dir_from_common(common);
-        let model_path = model_dir.join(&model.file);
-        let cache_dir = cache_dir_from_settings(common);
-
-        // Build args
-        let mut args: Vec<String> = vec![
-            "--log-colors".into(),
-            "on".into(),
-            "--port".into(),
-            common.port.to_string(),
-            "--host".into(),
-            common.host.clone(),
-            "--n-gpu-layers".into(),
-            model.gpu_layers.to_string(),
-            "--n-cpu-moe".into(),
-            model.cpu_moe.to_string(),
-            "--ctx-size".into(),
-            model.ctx_size.to_string(),
-            "--slot-save-path".into(),
-            cache_dir.to_string_lossy().to_string(),
-            "-m".into(),
-            model_path.to_string_lossy().to_string(),
-            "--alias".into(),
-            model.name.clone(),
-            "--temp".into(),
-            model.temperature.to_string(),
-            "--top-p".into(),
-            model.top_p.to_string(),
-            "--top-k".into(),
-            model.top_k.to_string(),
-            "--min-p".into(),
-            model.min_p.to_string(),
-            "--repeat-penalty".into(),
-            model.repeat_penalty.to_string(),
-            "--presence-penalty".into(),
-            model.presence_penalty.to_string(),
-            "-ctk".into(),
-            model.kv_k.clone(),
-            "-ctv".into(),
-            model.kv_v.clone(),
-        ];
-
-        if common.no_mmap {
-            args.push("--no-mmap".into());
-        }
-        if common.flash_attn == "on" {
-            args.extend_from_slice(&["--flash-attn".into(), "on".into()]);
-        }
-        args.extend_from_slice(&["--spec-type".into(), common.spec_type.clone()]);
-        args.extend_from_slice(&["--spec-draft-n-max".into(), common.spec_draft_n_max.to_string()]);
-
-        // Append extra args if present
-        let trimmed = common.extra_args.trim();
-        if !trimmed.is_empty() {
-            args.extend(trimmed.split_whitespace().map(String::from));
-        }
-        let model_trimmed = model.extra_args.trim();
-        if !model_trimmed.is_empty() {
-            args.extend(model_trimmed.split_whitespace().map(String::from));
-        }
+        let server_path = server_path_for_model(common, model);
+        let args = build_args(common, model);
 
         // Determine working directory (parent of server binary)
-        let server_path_obj = std::path::Path::new(server_path);
+        let server_path_obj = std::path::Path::new(&server_path);
         let work_dir = server_path_obj
             .parent()
             .unwrap_or(std::path::Path::new("."));
 
-        let mut child = Command::new(server_path)
+        let mut child = Command::new(&server_path)
             .args(&args)
             .current_dir(work_dir)
             .stdout(Stdio::piped())
@@ -197,66 +259,7 @@ impl ServerManager {
     }
 }
 
-/// Build the full llama-server argument list for display (mirrors `spawn()` logic).
+/// Build the full llama-server argument list for display.
 pub fn build_args_display(common: &CommonSettings, model: &ModelSettings) -> Vec<String> {
-    let model_dir = model_dir_from_common(common);
-    let model_path = model_dir.join(&model.file);
-    let cache_dir = cache_dir_from_settings(common);
-
-    let mut args: Vec<String> = vec![
-        "--log-colors".into(),
-        "on".into(),
-        "--port".into(),
-        common.port.to_string(),
-        "--host".into(),
-        common.host.clone(),
-        "--n-gpu-layers".into(),
-        model.gpu_layers.to_string(),
-        "--n-cpu-moe".into(),
-        model.cpu_moe.to_string(),
-        "--ctx-size".into(),
-        model.ctx_size.to_string(),
-        "--slot-save-path".into(),
-        cache_dir.to_string_lossy().to_string(),
-        "-m".into(),
-        model_path.to_string_lossy().to_string(),
-        "--alias".into(),
-        model.name.clone(),
-        "--temp".into(),
-        model.temperature.to_string(),
-        "--top-p".into(),
-        model.top_p.to_string(),
-        "--top-k".into(),
-        model.top_k.to_string(),
-        "--min-p".into(),
-        model.min_p.to_string(),
-        "--repeat-penalty".into(),
-        model.repeat_penalty.to_string(),
-        "--presence-penalty".into(),
-        model.presence_penalty.to_string(),
-        "-ctk".into(),
-        model.kv_k.clone(),
-        "-ctv".into(),
-        model.kv_v.clone(),
-    ];
-
-    if common.no_mmap {
-        args.push("--no-mmap".into());
-    }
-    if common.flash_attn == "on" {
-        args.extend_from_slice(&["--flash-attn".into(), "on".into()]);
-    }
-    args.extend_from_slice(&["--spec-type".into(), common.spec_type.clone()]);
-    args.extend_from_slice(&["--spec-draft-n-max".into(), common.spec_draft_n_max.to_string()]);
-
-    let trimmed = common.extra_args.trim();
-    if !trimmed.is_empty() {
-        args.extend(trimmed.split_whitespace().map(String::from));
-    }
-    let model_trimmed = model.extra_args.trim();
-    if !model_trimmed.is_empty() {
-        args.extend(model_trimmed.split_whitespace().map(String::from));
-    }
-
-    args
+    build_args(common, model)
 }
