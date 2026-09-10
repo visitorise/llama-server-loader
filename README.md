@@ -2,7 +2,7 @@
 
 A TUI (Terminal UI) launcher for managing llama-server execution. Replaces multiple shell scripts with a single configuration-driven binary.
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 ![한국어](https://github.com/visitorise/llama-server-loader/blob/master/README.ko.md)
@@ -17,15 +17,18 @@ A TUI (Terminal UI) launcher for managing llama-server execution. Replaces multi
 
 ### ⚙️ Configuration Management
 - JSON configuration file (`~/.config/llama-server-loader/config.json`)
-- **Common settings**: llama-server path, host, port, GPU offload, Flash Attention, speculative decoding, etc.
-- **Per-model settings**: GPU layers, context size, KV cache quantization, sampling parameters, extra arguments
+- **Common settings**: llama-server path, host, port, model directory, extra arguments, etc.
+- **Per-model settings with checkboxes**: Every parameter (GPU layers, context size, KV cache quantization, sampling, server path, etc.) has a `[x]` checkbox to enable/disable it per model. Press `Space` to toggle.
+- **Per-model `llama_server_path` override**: Set a custom server binary per model. When unchecked, the common path is used (shown as a fallback in the editor).
+- **GPU layers as free-form text**: Supports `auto`, `all`, or a number (e.g. `75`).
+- **Model directory rescan**: Editing the common model path automatically rescans the model list.
 - Direct configuration editing in TUI (Configure tab)
 
 ### 🚀 Server Management
 - **One-click execution**: Select model and press Enter/r to start server
 - **Graceful Shutdown**: SIGTERM → 20s wait → SIGKILL
 - **Log streaming**: Real-time log display with auto-scroll and manual scroll support
-- **LLama Args popup**: Preview execution arguments
+- **LLama Args popup**: Preview execution arguments — shows the resolved server binary path and one parameter per line, matching exactly what gets spawned
 
 ### 📊 GPU Monitoring (inspired by nvtop)
 - NVIDIA GPU Utilization/Memory braille graphs
@@ -63,7 +66,7 @@ Built binary: `target/release/llama-server-loader`
 
 - **Top tab bar**: Switch between Server / Configure tabs, version display
 - **Server tab**: Model list selection + server control buttons (Run, Stop, Llama Args, Exit)
-- **Configure tab**: Common settings and per-model settings editor
+- **Configure tab**: Common settings and per-model settings editor (each per-model parameter has a `[x]` checkbox; `Space` to enable/disable, `Enter` to edit the value)
 - **GPU Monitoring (middle)**: Real-time GPU Utilization/Memory braille graphs (nvtop-style)
 - **Log panel (bottom)**: Server stdout/stderr real-time output
 
@@ -88,6 +91,7 @@ Built binary: `target/release/llama-server-loader`
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
 | `Enter` / `e` | Toggle edit mode |
+| `Space` | Toggle checkbox (enable/disable a per-model parameter) |
 | `c` | Check for updates (GitHub Release) |
 | `Tab` | Switch to Server tab |
 
@@ -115,32 +119,51 @@ Default config is created automatically on first run.
 | `llama_server_path` | `llama-server` | Full path to llama-server executable (including command). Example: `/home/user/AIAgent/llama.cpp/llama_cpp/llama-server` |
 | `host` | `0.0.0.0` | Server binding IP |
 | `port` | `11400` | Server port |
-| `model_dir` | `""` (auto-detect) | Model files directory |
-| `no_mmap` | `true` | Use `--no-mmap` flag |
-| `flash_attn` | `on` | Enable Flash Attention |
-| `spec_type` | `none` | Speculative decoding type |
-| `spec_draft_n_max` | `2` | Max speculative drafting count |
-| `extra_args` | `""` | Additional llama-server arguments |
+| `model_dir` | `""` (auto-detect) | Model files directory. Editing this rescans the model list automatically |
+| `cache_dir` | `""` (auto-detect) | Server cache directory (used for `--slot-save-path`) |
+| `extra_args` | `""` | Additional llama-server arguments applied to every model |
 | `mid_pane_height` | `19` | Middle panel (GPU graph) height |
+| `update_script_path` | auto | Path to `llama-server-update.sh` |
+
+> **Note**: `no_mmap`, `flash_attn`, `spec_type`, and `spec_draft_n_max` were moved from common settings to **per-model** settings (checkbox-enabled). Each model can now control these independently.
 
 ### Model Settings
 
-| Item | Default | Description |
-|------|--------|------|
-| `name` | filename | Model display name |
-| `file` | - | `.gguf` filename |
-| `gpu_layers` | `75` | GPU offload layer count |
-| `ctx_size` | `262144` | Context size (tokens) |
-| `kv_k` | `q8_0` | KV Cache Key quantization |
-| `kv_v` | `q8_0` | KV Cache Value quantization |
-| `cpu_moe` | `0` | CPU MoE layer count |
-| `temperature` | `1.0` | Sampling temperature |
-| `top_k` | `40` | Top-K sampling |
-| `top_p` | `0.95` | Top-P (nucleus) sampling |
-| `min_p` | `0.0` | Min-P sampling |
-| `repeat_penalty` | `1.1` | Repeat penalty |
-| `presence_penalty` | `0.0` | Presence penalty |
-| `extra_args` | `""` | Additional model-specific arguments |
+Each parameter has a `[x]` checkbox. **Only checkbox-enabled parameters are passed to llama-server.** Press `Space` to toggle.
+
+| Item | Default | CLI Flag | Description |
+|------|--------|------|------|
+| `llama_server_path` | `""` (common) | (binary path) | Per-model server binary override. Unchecked → uses common path |
+| `cache_dir` | `""` (common) | `--slot-save-path` | Per-model cache directory override |
+| `model` | - | `-m` | `.gguf` filename (auto-filled from the model list) |
+| `model_draft` | `""` | `--model-draft` | Draft model path for speculative decoding |
+| `alias` | filename | `--alias` | Model display name |
+| `spec_type` | `none` | `--spec-type` | Speculative decoding type |
+| `spec_draft_n_max` | `2` | `--spec-draft-n-max` | Max speculative drafting count |
+| `gpu_layers` | `75` | `--n-gpu-layers` | GPU offload layer count — accepts `auto`, `all`, or a number |
+| `cpu_moe` | `0` | `--n-cpu-moe` | CPU MoE expert layer count |
+| `threads` | `0` (auto) | `--threads` | Number of threads |
+| `moe_expert_cache_size` | `0` (auto) | `--moe-expert-cache-size` | MoE expert cache size |
+| `ctx_size` | `262144` | `--ctx-size` | Context size (tokens) |
+| `kv_k` | `q8_0` | `-ctk` | KV Cache Key quantization |
+| `kv_v` | `q8_0` | `-ctv` | KV Cache Value quantization |
+| `temperature` | `1.0` | `--temp` | Sampling temperature |
+| `top_k` | `40` | `--top-k` | Top-K sampling |
+| `top_p` | `0.95` | `--top-p` | Top-P (nucleus) sampling |
+| `min_p` | `0.0` | `--min-p` | Min-P sampling |
+| `repeat_penalty` | `1.0` | `--repeat-penalty` | Repeat penalty |
+| `presence_penalty` | `0.0` | `--presence-penalty` | Presence penalty |
+| `batch_size` | `2048` | `--batch-size` | Batch size |
+| `ubatch_size` | `512` | `--ubatch-size` | Micro-batch size |
+| `no_mmap` | `true` | `--no-mmap` | Disable memory mapping |
+| `flash_attn` | `on` | `--flash-attn` | Flash Attention setting |
+| `cache_ram` | `0` | `--cache-ram` | RAM cache size (MB) |
+| `load_mode` | `""` | `--load-mode` | Model loading mode (lazy/mmap/mlock) |
+| `parallel` | `1` | `--parallel` | Number of parallel sequences |
+| `fit` | `on` | `--fit` | Fit model to available memory (`on`/`off`) |
+| `kv_offload` | checked | `--kv-offload` | Offload KV cache to GPU (pure flag, no value) |
+| `jinja` | unchecked | `--jinja` | Use Jinja templates for chat formatting (pure flag) |
+| `extra_args` | `""` | - | Additional model-specific arguments |
 
 ## Update
 
