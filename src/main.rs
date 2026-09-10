@@ -185,7 +185,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             if app.show_llama_args {
                 if let Some(model) = app.selected_model_settings() {
                     let args = server_manager::build_args_display(&app.config.common, model);
-                    ui_llama_args_popup::render_llama_args_popup(frame, area, &args);
+                    let server_path = crate::model::server_path_for_model(&app.config.common, model);
+                    ui_llama_args_popup::render_llama_args_popup(frame, area, &server_path, &args);
                 }
             }
 
