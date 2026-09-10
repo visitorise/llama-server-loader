@@ -276,11 +276,13 @@ impl App {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn rescan_models(&mut self) {
         let common = self.config.common.clone();
         self.model_files = scan_model_files(&model_dir_from_common(&common));
         config::sync_models(&mut self.config, &common);
+        if self.selected_model_idx >= self.config.models.len() {
+            self.selected_model_idx = self.config.models.len().saturating_sub(1);
+        }
     }
 
     /// Poll all GPU metrics via NVML and update self.gpu_metrics + history.

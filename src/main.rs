@@ -694,20 +694,23 @@ fn handle_config_tab_key(
                 let new_val = app.config_edit.input.value().to_string();
                 match app.config_edit.section {
                     app::ConfigSection::Common => {
-                        if let Some((_, _, set)) =
+                        if let Some((label, _, set)) =
                             ui_config_tab::COMMON_FIELDS.get(app.config_edit.common_idx)
                         {
                             set(&mut app.config.common, new_val);
+                            if *label == "model_path" {
+                                app.rescan_models();
+                            }
                         }
                     }
                     app::ConfigSection::ModelSettings => {
                         if let Some(model) =
                             app.config.models.get_mut(app.config_edit.model_list_idx)
                         {
-                            if let Some((_, _, set)) =
+                            if let Some(field) =
                                 ui_config_tab::MODEL_FIELDS.get(app.config_edit.model_field_idx)
                             {
-                                set(model, new_val);
+                                (field.set)(model, new_val);
                             }
                         }
                     }
@@ -834,9 +837,8 @@ fn handle_config_tab_key(
                 }
                 ConfigSection::ModelSettings => {
                     if let Some(model) = app.config.models.get(app.config_edit.model_list_idx) {
-                        if let Some((_, get, _)) = MODEL_FIELDS.get(app.config_edit.model_field_idx)
-                        {
-                            get(model)
+                        if let Some(field) = MODEL_FIELDS.get(app.config_edit.model_field_idx) {
+                            (field.get)(model)
                         } else {
                             return;
                         }
@@ -852,6 +854,17 @@ fn handle_config_tab_key(
             };
             app.config_edit.input = tui_input::Input::from(value);
             app.config_edit.editing = true;
+        }
+        KeyCode::Char(' ') => {
+            if app.config_edit.section == ConfigSection::ModelSettings {
+                if let Some(model) = app.config.models.get_mut(app.config_edit.model_list_idx) {
+                    if let Some(field) = MODEL_FIELDS.get(app.config_edit.model_field_idx) {
+                        if let Some(toggle) = field.enabled_toggle {
+                            toggle(model);
+                        }
+                    }
+                }
+            }
         }
         KeyCode::Char('s') | KeyCode::Char('S') => {
             if let Err(e) = crate::config::save_config(&app.config) {
